@@ -16,7 +16,7 @@ from app.handlers.subscription.common import (
 )
 from app.localization.loader import DEFAULT_LANGUAGE
 from app.localization.texts import get_texts
-from app.utils.miniapp_buttons import build_miniapp_or_callback_button
+from app.utils.miniapp_buttons import build_cabinet_webapp_button, build_miniapp_or_callback_button
 from app.utils.price_display import PriceInfo, format_price_button
 from app.utils.pricing_utils import (
     apply_percentage_discount,
@@ -56,40 +56,30 @@ async def get_main_menu_keyboard_async(
     texts = get_texts(language)
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text=texts.t('MAIN_MENU_CABINET_BUTTON', '🏠 Личный кабинет'),
-                web_app=types.WebAppInfo(url='https://vernovpn.com'),
-            )
-        ]
-    )
+    rows.append([build_cabinet_webapp_button(language)])
 
     if has_active_subscription and subscription_is_active:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
-                    callback_data='subscription_connect',
-                )
-            ]
-        )
+        subscription_link = get_display_subscription_link(subscription) if subscription else None
+        if subscription_link and subscription_link.startswith(('http://', 'https://')):
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
+                        url=subscription_link,
+                    )
+                ]
+            )
 
     rows.append(
         [
             InlineKeyboardButton(
                 text=texts.t('MAIN_MENU_INVITE_BUTTON', '👥 Пригласить'),
                 callback_data='menu_referrals',
-            )
-        ]
-    )
-
-    rows.append(
-        [
+            ),
             InlineKeyboardButton(
                 text=texts.t('MAIN_MENU_INFO_BUTTON', 'ℹ️ Инфо'),
                 callback_data='menu_info',
-            )
+            ),
         ]
     )
 

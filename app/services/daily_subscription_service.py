@@ -25,6 +25,7 @@ from app.database.crud.user import get_user_by_id, subtract_user_balance
 from app.database.database import AsyncSessionLocal
 from app.database.models import PaymentMethod, Subscription, SubscriptionStatus, TransactionType, User
 from app.localization.texts import get_texts
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 from app.services.notification_delivery_service import (
     NotificationType,
     notification_delivery_service,
@@ -368,7 +369,7 @@ class DailySubscriptionService:
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='menu_balance')],
-                [InlineKeyboardButton(text='📱 Моя подписка', callback_data='menu_subscription')],
+                [build_cabinet_webapp_button(getattr(user, 'language', None))],
             ]
         )
 

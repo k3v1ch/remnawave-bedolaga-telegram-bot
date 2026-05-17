@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import PaymentMethod, TransactionType
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 from app.utils.payment_logger import payment_logger as logger
 from app.utils.user_utils import format_referrer_info
 
@@ -1032,11 +1033,7 @@ class YooKassaPaymentMixin:
 
                                 keyboard = types.InlineKeyboardMarkup(
                                     inline_keyboard=[
-                                        [
-                                            types.InlineKeyboardButton(
-                                                text='📱 Моя подписка', callback_data='menu_subscription'
-                                            )
-                                        ],
+                                        [build_cabinet_webapp_button(getattr(user, 'language', None))],
                                         [
                                             types.InlineKeyboardButton(
                                                 text='🏠 Главное меню', callback_data='back_to_menu'

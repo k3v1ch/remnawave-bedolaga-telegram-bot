@@ -7,6 +7,29 @@ from app.config import settings
 from app.utils.button_styles_cache import CALLBACK_TO_SECTION, get_cached_button_styles
 
 
+# Единый URL мини-приложения «Личный кабинет». Используется кнопкой в главном
+# меню и во всех push-уведомлениях бота, чтобы юзер всегда возвращался в один
+# и тот же интерфейс кабинета.
+CABINET_MINIAPP_URL = 'https://vernovpn.com'
+
+
+def build_cabinet_webapp_button(language: str | None = None) -> InlineKeyboardButton:
+    """Кнопка «🏠 Личный кабинет» — открывает MiniApp кабинета.
+
+    Используется во всех уведомлениях вместо кнопок «Купить/Продлить
+    подписку», чтобы пользователь попадал в кабинет, где доступны все
+    действия с подпиской.
+    """
+    from app.localization.loader import DEFAULT_LANGUAGE
+    from app.localization.texts import get_texts
+
+    texts = get_texts(language or DEFAULT_LANGUAGE)
+    return InlineKeyboardButton(
+        text=texts.t('MAIN_MENU_CABINET_BUTTON', '🏠 Личный кабинет'),
+        web_app=types.WebAppInfo(url=CABINET_MINIAPP_URL),
+    )
+
+
 # Юникод-диапазоны для одиночного emoji в начале строки + модификаторы (skin tone,
 # variation selector, zero-width joiner-цепочки) + опциональный пробел после.
 # Используется когда у кнопки задан icon_custom_emoji_id — Telegram сам рендерит

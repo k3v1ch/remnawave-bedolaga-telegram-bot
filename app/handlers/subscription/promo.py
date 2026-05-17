@@ -14,7 +14,7 @@ from app.database.crud.promo_offer_template import get_promo_offer_template_by_i
 from app.database.models import User
 from app.localization.texts import get_texts
 from app.services.promo_offer_service import promo_offer_service
-from app.utils.miniapp_buttons import build_miniapp_or_callback_button
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 from app.utils.pricing_utils import (
     format_period_description,
 )
@@ -338,38 +338,9 @@ async def claim_discount_offer(
 
     await callback.answer('✅ Скидка активирована!', show_alert=True)
 
-    offer_type = None
-    if isinstance(extra_data, dict):
-        offer_type = extra_data.get('offer_type')
-
-    subscription = getattr(db_user, 'subscription', None)
-
-    if offer_type == 'purchase_discount':
-        button_text = texts.get('MENU_BUY_SUBSCRIPTION', '💎 Купить подписку')
-        button_callback = 'subscription_upgrade'
-    elif offer_type == 'extend_discount':
-        button_text = texts.get('SUBSCRIPTION_EXTEND', '💎 Продлить подписку')
-        button_callback = 'subscription_extend'
-    else:
-        has_active_paid_subscription = bool(
-            subscription and getattr(subscription, 'is_active', False) and not getattr(subscription, 'is_trial', False)
-        )
-
-        if has_active_paid_subscription:
-            button_text = texts.get('SUBSCRIPTION_EXTEND', '💎 Продлить подписку')
-            button_callback = 'subscription_extend'
-        else:
-            button_text = texts.get('MENU_BUY_SUBSCRIPTION', '💎 Купить подписку')
-            button_callback = 'subscription_upgrade'
-
     buy_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                build_miniapp_or_callback_button(
-                    text=button_text,
-                    callback_data=button_callback,
-                )
-            ]
+            [build_cabinet_webapp_button(db_user.language)],
         ]
     )
     await callback.message.answer(success_message, reply_markup=buy_keyboard)

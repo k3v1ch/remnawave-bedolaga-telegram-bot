@@ -36,7 +36,7 @@ from app.database.models import Subscription, SubscriptionServer, SubscriptionSt
 from app.localization.texts import get_texts
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.notification_delivery_service import NotificationType, notification_delivery_service
-from app.utils.miniapp_buttons import build_miniapp_or_callback_button
+from app.utils.miniapp_buttons import build_cabinet_webapp_button, build_miniapp_or_callback_button
 
 
 logger = structlog.get_logger(__name__)
@@ -605,23 +605,16 @@ class RemnaWaveWebhookService:
         return bool(re.match(r'^[a-zA-Z][a-zA-Z0-9+\-.]*://', value))
 
     def _get_renew_keyboard(self, user: User, subscription_id: int | None = None) -> InlineKeyboardMarkup:
-        texts = get_texts(user.language)
-        button_text = texts.get('WEBHOOK_RENEW_BUTTON', 'Renew subscription')
-        extend_callback = (
-            f'se:{subscription_id}' if settings.is_multi_tariff_enabled() and subscription_id else 'subscription_extend'
-        )
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [build_miniapp_or_callback_button(text=button_text, callback_data=extend_callback)],
+                [build_cabinet_webapp_button(user.language)],
             ]
         )
 
     def _get_subscription_keyboard(self, user: User) -> InlineKeyboardMarkup:
-        texts = get_texts(user.language)
-        button_text = texts.get('MY_SUBSCRIPTION_BUTTON', 'My subscription')
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [build_miniapp_or_callback_button(text=button_text, callback_data='menu_subscription')],
+                [build_cabinet_webapp_button(user.language)],
             ]
         )
 
@@ -635,13 +628,9 @@ class RemnaWaveWebhookService:
         )
 
     def _get_traffic_keyboard(self, user: User) -> InlineKeyboardMarkup:
-        texts = get_texts(user.language)
-        buy_text = texts.get('BUY_TRAFFIC_BUTTON', 'Buy traffic')
-        sub_text = texts.get('MY_SUBSCRIPTION_BUTTON', 'My subscription')
         return InlineKeyboardMarkup(
             inline_keyboard=[
-                [build_miniapp_or_callback_button(text=buy_text, callback_data='buy_traffic')],
-                [build_miniapp_or_callback_button(text=sub_text, callback_data='menu_subscription')],
+                [build_cabinet_webapp_button(user.language)],
             ]
         )
 

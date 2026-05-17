@@ -32,6 +32,7 @@ from app.services.subscription_purchase_service import (
 )
 from app.services.subscription_service import SubscriptionService
 from app.services.user_cart_service import user_cart_service
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 from app.utils.pricing_utils import format_period_description
 from app.utils.timezone import format_local_datetime
 
@@ -651,12 +652,7 @@ async def _auto_extend_subscription(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 My subscription'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Main menu'),
@@ -1017,12 +1013,7 @@ async def _auto_purchase_tariff(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
@@ -1369,12 +1360,7 @@ async def _auto_purchase_daily_tariff(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
@@ -1713,12 +1699,7 @@ async def _auto_add_devices(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
@@ -2069,12 +2050,7 @@ async def _auto_add_traffic(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 Моя подписка'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Главное меню'),
@@ -2436,12 +2412,7 @@ async def try_auto_extend_expired_after_topup(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 My subscription'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Main menu'),
@@ -2814,12 +2785,7 @@ async def try_resume_disabled_daily_after_topup(
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 My subscription'),
-                            callback_data='menu_subscription',
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                     [
                         InlineKeyboardButton(
                             text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Main menu'),
@@ -3203,12 +3169,7 @@ async def _process_legacy_generic_cart(
 
                 keyboard = InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text=texts.t('MY_SUBSCRIPTION_BUTTON', '📱 My subscription'),
-                                callback_data='menu_subscription',
-                            )
-                        ],
+                        [build_cabinet_webapp_button(getattr(user, 'language', None))],
                         [
                             InlineKeyboardButton(
                                 text=texts.t('BACK_TO_MAIN_MENU_BUTTON', '🏠 Main menu'),

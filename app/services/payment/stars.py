@@ -18,6 +18,7 @@ from app.database.crud.transaction import create_transaction
 from app.database.crud.user import get_user_by_id
 from app.database.models import PaymentMethod, TransactionType
 from app.external.telegram_stars import TelegramStarsService
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 from app.utils.payment_logger import payment_logger as logger
 from app.utils.user_utils import format_referrer_info
 
@@ -333,12 +334,7 @@ class TelegramStarsMixin:
 
                 keyboard = types.InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [
-                            types.InlineKeyboardButton(
-                                text='📱 Моя подписка',
-                                callback_data='menu_subscription',
-                            )
-                        ],
+                        [build_cabinet_webapp_button(getattr(user, 'language', None))],
                         [
                             types.InlineKeyboardButton(
                                 text='🏠 Главное меню',

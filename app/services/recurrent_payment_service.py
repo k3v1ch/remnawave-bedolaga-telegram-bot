@@ -24,6 +24,7 @@ from app.database.models import (
     User,
     UserPromoGroup,
 )
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 
 
 logger = structlog.get_logger(__name__)
@@ -52,19 +53,11 @@ class _DailyGuard:
 _daily_guard = _DailyGuard()
 
 
-def _build_extend_keyboard(texts, subscription_id: int | None = None) -> InlineKeyboardMarkup:
-    """Клавиатура с кнопкой продления подписки для уведомлений."""
-    extend_callback = (
-        f'se:{subscription_id}' if settings.is_multi_tariff_enabled() and subscription_id else 'subscription_extend'
-    )
+def _build_extend_keyboard(texts, subscription_id: int | None = None, language: str | None = None) -> InlineKeyboardMarkup:
+    """Клавиатура с кнопкой «Личный кабинет» для уведомлений рекуррентного автоплатежа."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=texts.t('SUBSCRIPTION_EXTEND', '💎 Продлить подписку'),
-                    callback_data=extend_callback,
-                )
-            ],
+            [build_cabinet_webapp_button(language)],
         ]
     )
 
@@ -388,7 +381,7 @@ async def _process_single_subscription(
                 texts = get_texts(user.language)
                 payment_status = result.get('status', '')
                 if result.get('paid'):
-                    keyboard = _build_extend_keyboard(texts, subscription.id)
+                    keyboard = _build_extend_keyboard(texts, subscription.id, user.language)
                     msg = texts.t(
                         'RECURRENT_TOPUP_SUCCESS',
                         '✅ <b>Автоплатёж выполнен</b>\n\nБаланс пополнен на {amount} для продления подписки.',
@@ -418,7 +411,7 @@ async def _process_single_subscription(
             from app.localization.texts import get_texts
 
             texts = get_texts(user.language)
-            keyboard = _build_extend_keyboard(texts, subscription.id)
+            keyboard = _build_extend_keyboard(texts, subscription.id, user.language)
             msg = texts.t(
                 'RECURRENT_TOPUP_FAILED',
                 '❌ <b>Автоплатёж не удался</b>\n\nНе удалось списать {amount} ни с одной сохранённой карты для продления подписки.\n\nПополните баланс вручную, чтобы подписка не прервалась.',

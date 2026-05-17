@@ -58,6 +58,7 @@ from app.services.notification_delivery_service import (
     NotificationType,
     notification_delivery_service,
 )
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 
 
 logger = structlog.get_logger(__name__)
@@ -96,15 +97,9 @@ class UserService:
                 f'💳 Текущий баланс: {settings.format_price(user.balance_kopeks)}\n\n'
                 f'Спасибо за использование нашего сервиса! 🎉'
             )
-            extend_callback = 'menu_subscription' if settings.is_multi_tariff_enabled() else 'subscription_extend'
             keyboard = types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('SUBSCRIPTION_EXTEND', '💎 Продлить подписку'),
-                            callback_data=extend_callback,
-                        )
-                    ]
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                 ]
             )
         else:
@@ -118,16 +113,9 @@ class UserService:
                 f'Пополнение баланса НЕ активирует подписку автоматически!\n\n'
                 f'👇 <b>Выберите действие:</b>'
             )
-            extend_callback = 'menu_subscription' if settings.is_multi_tariff_enabled() else 'subscription_extend'
             keyboard = types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [types.InlineKeyboardButton(text='🚀 АКТИВИРОВАТЬ ПОДПИСКУ', callback_data='subscription_buy')],
-                    [types.InlineKeyboardButton(text='💎 ПРОДЛИТЬ ПОДПИСКУ', callback_data=extend_callback)],
-                    [
-                        types.InlineKeyboardButton(
-                            text='📱 ДОБАВИТЬ УСТРОЙСТВА', callback_data='subscription_add_devices'
-                        )
-                    ],
+                    [build_cabinet_webapp_button(getattr(user, 'language', None))],
                 ]
             )
 
@@ -171,15 +159,7 @@ class UserService:
         subs = getattr(user, 'subscriptions', None) or []
         has_extendable = any(sub.status in {'active', 'expired', 'trial'} for sub in subs)
         if has_extendable:
-            extend_callback = 'menu_subscription' if settings.is_multi_tariff_enabled() else 'subscription_extend'
-            keyboard_rows.append(
-                [
-                    types.InlineKeyboardButton(
-                        text=get_texts(user.language).t('SUBSCRIPTION_EXTEND', '💎 Продлить подписку'),
-                        callback_data=extend_callback,
-                    )
-                ]
-            )
+            keyboard_rows.append([build_cabinet_webapp_button(getattr(user, 'language', None))])
 
         reply_markup = types.InlineKeyboardMarkup(inline_keyboard=keyboard_rows) if keyboard_rows else None
 

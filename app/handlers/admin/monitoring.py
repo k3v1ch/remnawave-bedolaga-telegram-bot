@@ -21,6 +21,7 @@ from app.services.traffic_monitoring_service import (
 )
 from app.states import AdminStates
 from app.utils.decorators import admin_required
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 from app.utils.pagination import paginate_list
 
 
@@ -179,12 +180,7 @@ async def _build_notification_preview_message(language: str, notification_type: 
         )
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('SUBSCRIPTION_EXTEND', '💎 Продлить подписку'),
-                        callback_data='subscription_extend',
-                    )
-                ],
+                [build_cabinet_webapp_button(language)],
                 [
                     InlineKeyboardButton(
                         text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
@@ -224,12 +220,7 @@ async def _build_notification_preview_message(language: str, notification_type: 
                         callback_data='claim_discount_preview',
                     )
                 ],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('SUBSCRIPTION_EXTEND', '💎 Продлить подписку'),
-                        callback_data='subscription_extend',
-                    )
-                ],
+                [build_cabinet_webapp_button(language)],
                 [
                     InlineKeyboardButton(
                         text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
@@ -270,12 +261,7 @@ async def _build_notification_preview_message(language: str, notification_type: 
                         callback_data='claim_discount_preview',
                     )
                 ],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('SUBSCRIPTION_EXTEND', '💎 Продлить подписку'),
-                        callback_data='subscription_extend',
-                    )
-                ],
+                [build_cabinet_webapp_button(language)],
                 [
                     InlineKeyboardButton(
                         text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),

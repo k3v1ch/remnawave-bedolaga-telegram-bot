@@ -19,14 +19,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database.crud.user import get_user_by_telegram_id
 from app.database.database import AsyncSessionLocal, get_db
-from app.database.models import Subscription
 from app.localization.texts import get_texts
-from app.services.subscription_checkout_service import (
-    has_subscription_checkout_draft,
-    should_offer_checkout_resume,
-)
 from app.services.user_cart_service import user_cart_service
-from app.utils.miniapp_buttons import build_miniapp_or_callback_button
+from app.utils.miniapp_buttons import build_cabinet_webapp_button, build_miniapp_or_callback_button
 from app.utils.payment_logger import payment_logger as logger
 
 
@@ -38,95 +33,10 @@ class PaymentCommonMixin:
         # Загружаем нужные тексты с учётом выбранного языка пользователя.
         texts = get_texts(user.language if user else 'ru')
 
-        # Определяем статус подписки, чтобы показать подходящую кнопку.
-        has_active_subscription = False
-        subscription = None
-        if user:
-            try:
-                subs = getattr(user, 'subscriptions', None) or []
-                subscription = next(
-                    (s for s in subs if getattr(s, 'is_active', False)),
-                    None,
-                )
-                has_active_subscription = bool(
-                    subscription
-                    and not getattr(subscription, 'is_trial', False)
-                    and getattr(subscription, 'is_active', False)
-                )
-            except MissingGreenlet:
-                # user вне сессии — загружаем подписку отдельным запросом
-                try:
-                    async with AsyncSessionLocal() as session:
-                        result = await session.execute(
-                            select(Subscription.status, Subscription.is_trial, Subscription.end_date)
-                            .where(Subscription.user_id == user.id)
-                            .where(Subscription.status.in_(['active', 'trial']))
-                            .order_by(Subscription.created_at.desc())
-                        )
-                        rows = result.all()
-                        for row in rows:
-                            end_date = row.end_date
-                            if end_date is not None and end_date.tzinfo is None:
-                                end_date = end_date.replace(tzinfo=UTC)
-                            is_active = row.status == 'active' and end_date is not None and end_date > datetime.now(UTC)
-                            if is_active and not row.is_trial:
-                                has_active_subscription = True
-                                break
-                except Exception as db_error:
-                    logger.warning(
-                        'Не удалось загрузить подписку пользователя из БД',
-                        getattr=getattr(user, 'id', None),
-                        db_error=db_error,
-                    )
-            except Exception as error:  # pragma: no cover - защитный код
-                logger.error(
-                    'Ошибка загрузки подписки пользователя при построении клавиатуры после пополнения',
-                    getattr=getattr(user, 'id', None),
-                    error=error,
-                )
-
-        # Создаем основную кнопку: если есть активная подписка - продлить, иначе купить
-        first_button = build_miniapp_or_callback_button(
-            text=(texts.MENU_EXTEND_SUBSCRIPTION if has_active_subscription else texts.MENU_BUY_SUBSCRIPTION),
-            callback_data=('subscription_extend' if has_active_subscription else 'menu_buy'),
-        )
-
+        # Основная кнопка — «Личный кабинет», открывает MiniApp с подпиской.
         keyboard_rows: list[list[InlineKeyboardButton]] = [
-            [first_button],
+            [build_cabinet_webapp_button(getattr(user, 'language', None) if user else None)],
         ]
-
-        # Если для пользователя есть незавершённый checkout, предлагаем вернуться к нему.
-        if user:
-            try:
-                has_saved_cart = await user_cart_service.has_user_cart(user.id)
-            except Exception as cart_error:
-                logger.warning(
-                    'Не удалось проверить наличие сохраненной корзины у пользователя',
-                    user_id=user.id,
-                    cart_error=cart_error,
-                )
-                has_saved_cart = False
-
-            if has_saved_cart:
-                keyboard_rows.append(
-                    [
-                        build_miniapp_or_callback_button(
-                            text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
-                            callback_data='return_to_saved_cart',
-                        )
-                    ]
-                )
-            else:
-                draft_exists = await has_subscription_checkout_draft(user.id)
-                if should_offer_checkout_resume(user, draft_exists, subscription=subscription):
-                    keyboard_rows.append(
-                        [
-                            build_miniapp_or_callback_button(
-                                text=texts.RETURN_TO_SUBSCRIPTION_CHECKOUT,
-                                callback_data='subscription_resume_checkout',
-                            )
-                        ]
-                    )
 
         # Стандартные кнопки быстрого доступа к балансу и главному меню.
         keyboard_rows.append(

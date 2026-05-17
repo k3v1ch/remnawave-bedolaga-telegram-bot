@@ -20,6 +20,7 @@ from app.keyboards.inline import (
 from app.localization.texts import get_texts
 from app.states import BalanceStates
 from app.utils.decorators import error_handler
+from app.utils.miniapp_buttons import build_cabinet_webapp_button
 
 
 logger = structlog.get_logger(__name__)
@@ -428,11 +429,7 @@ async def handle_successful_topup_with_cart(user_id: int, amount_kopeks: int, bo
 
             keyboard = types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text='🛒 Вернуться к оформлению подписки', callback_data='return_to_saved_cart'
-                        )
-                    ],
+                    [build_cabinet_webapp_button(user.language)],
                     [types.InlineKeyboardButton(text='💰 Мой баланс', callback_data='menu_balance')],
                     [types.InlineKeyboardButton(text='🏠 Главное меню', callback_data='back_to_menu')],
                 ]
