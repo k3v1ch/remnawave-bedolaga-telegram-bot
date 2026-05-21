@@ -10,7 +10,7 @@ from app.utils.button_styles_cache import CALLBACK_TO_SECTION, get_cached_button
 # Единый URL мини-приложения «Личный кабинет». Используется кнопкой в главном
 # меню и во всех push-уведомлениях бота, чтобы юзер всегда возвращался в один
 # и тот же интерфейс кабинета.
-CABINET_MINIAPP_URL = 'https://vernovpn.com'
+CABINET_MINIAPP_URL = 'https://vernovpn.com/login'
 
 
 def build_cabinet_webapp_button(language: str | None = None) -> InlineKeyboardButton:
