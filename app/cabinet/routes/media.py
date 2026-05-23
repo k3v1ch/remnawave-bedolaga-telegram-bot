@@ -158,10 +158,17 @@ async def upload_media(
 @router.get('/{file_id}', name='cabinet_download_media')
 async def download_media(
     file_id: str,
+    user: User = Depends(get_current_cabinet_user),
 ) -> Response:
     """
     Download media file by file_id.
     Used to display images/documents in ticket messages.
+
+    Requires authentication: Telegram file_ids are long unguessable bearer tokens,
+    but treating them as such on a public endpoint means a leaked file_id (logs,
+    screenshots, shared URLs) becomes a permanent unrevocable read grant. Gating
+    on a valid cabinet session reduces blast radius — a leaked file_id alone is
+    no longer enough.
     """
     bot = create_bot()
 
@@ -188,7 +195,9 @@ async def download_media(
             media_type=media_type,
             headers={
                 'Content-Disposition': f'inline; filename={filename}',
-                'Cache-Control': 'public, max-age=86400',  # Cache for 24 hours
+                # private — response is gated on the requester's session, so shared
+                # caches (CDNs, reverse proxies) must not store/share it.
+                'Cache-Control': 'private, max-age=86400',
             },
         )
     except HTTPException:
