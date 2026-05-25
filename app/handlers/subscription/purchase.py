@@ -2649,6 +2649,7 @@ async def confirm_purchase(callback: types.CallbackQuery, state: FSMContext, db_
             type=TransactionType.SUBSCRIPTION_PAYMENT,
             amount_kopeks=final_price,
             description=f'Подписка на {period_days} дней ({months_in_period} мес)',
+            period_days=period_days,
         )
 
         try:
@@ -4682,6 +4683,7 @@ async def _extend_existing_subscription(
         type=TransactionType.SUBSCRIPTION_PAYMENT,
         amount_kopeks=price_kopeks,
         description=f'Продление подписки на {period_days} дней',
+        period_days=period_days,
     )
 
     # Отправляем уведомление админу

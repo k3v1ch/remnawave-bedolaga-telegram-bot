@@ -556,6 +556,7 @@ async def _auto_extend_subscription(
             type=TransactionType.SUBSCRIPTION_PAYMENT,
             amount_kopeks=prepared.price_kopeks,
             description=prepared.description,
+            period_days=prepared.period_days,
         )
     except Exception as error:  # pragma: no cover - defensive logging
         logger.error(
@@ -933,6 +934,7 @@ async def _auto_purchase_tariff(
             type=TransactionType.SUBSCRIPTION_PAYMENT,
             amount_kopeks=final_price,
             description=description,
+            period_days=period_days,
         )
     except Exception as error:
         logger.warning(
@@ -2328,6 +2330,7 @@ async def try_auto_extend_expired_after_topup(
             type=TransactionType.SUBSCRIPTION_PAYMENT,
             amount_kopeks=renewal_cost,
             description=description,
+            period_days=period_days,
         )
     except Exception as error:
         logger.error(

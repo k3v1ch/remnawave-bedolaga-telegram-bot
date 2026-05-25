@@ -1,10 +1,11 @@
 import html
 import json
+from datetime import UTC, datetime
 
 import redis.asyncio as aioredis
 import structlog
 from aiogram import Bot
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -18,6 +19,17 @@ from app.utils.user_utils import get_effective_referral_commission_percent
 
 
 logger = structlog.get_logger(__name__)
+
+# Bot instance, выставляется на старте (main.py). Нужен реферальным хукам,
+# которые вызываются вне контекста запроса — например, начисление бонусных
+# дней из create_transaction, где экземпляр бота недоступен напрямую.
+_module_bot: Bot | None = None
+
+
+def set_referral_service_bot(bot: Bot) -> None:
+    """Сохраняет экземпляр бота для реферальных уведомлений вне контекста запроса."""
+    global _module_bot
+    _module_bot = bot
 
 # ---------------------------------------------------------------------------
 # Pending referral helpers (Redis)
@@ -669,6 +681,80 @@ async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_ko
             except Exception as e:
                 logger.error('Ошибка удаления записи ожидания', error=e)
 
+            # Партнёрская цепочка (любой в паре — одобренный партнёр) не получает welcome:
+            # партнёр живёт на индивидуальной комиссии + выводе реферального баланса,
+            # welcome задуман как компенсация для обычных рефералов без права на вывод.
+            if referrer.is_partner or user.is_partner:
+                welcome_money_percent = 0
+                logger.info(
+                    'Партнёрская цепочка — welcome money не начисляется',
+                    referrer_id=referrer.id,
+                    user_id=user.id,
+                    referrer_is_partner=referrer.is_partner,
+                    user_is_partner=user.is_partner,
+                )
+            else:
+                welcome_money_percent = settings.REFERRAL_WELCOME_MONEY_PERCENT
+            if welcome_money_percent > 0:
+                welcome_money = int(topup_amount_kopeks * welcome_money_percent / 100)
+                if welcome_money > 0:
+                    # Приветственный бонус деньгами — обоим. ReferralEarning НЕ создаётся,
+                    # поэтому бонус остаётся на балансе, но не учитывается при выводе.
+                    friend_welcome_ok = await add_user_balance(
+                        db,
+                        user,
+                        welcome_money,
+                        f'Приветственный бонус {welcome_money_percent}% от пополнения по реферальной программе',
+                        transaction_type=TransactionType.REFERRAL_REWARD,
+                        bot=bot,
+                    )
+                    referrer_welcome_ok = await add_user_balance(
+                        db,
+                        referrer,
+                        welcome_money,
+                        f'Приветственный бонус {welcome_money_percent}% за пополнение реферала {user.full_name}',
+                        transaction_type=TransactionType.REFERRAL_REWARD,
+                        bot=bot,
+                    )
+                    logger.info(
+                        '🎁 Приветственный бонус деньгами начислен обоим',
+                        referral_id=user.id,
+                        referrer_id=referrer.id,
+                        welcome_money=welcome_money / 100,
+                        friend_ok=friend_welcome_ok,
+                        referrer_ok=referrer_welcome_ok,
+                    )
+                    if bot and friend_welcome_ok:
+                        await send_referral_notification(
+                            bot,
+                            user.telegram_id,
+                            (
+                                f'🎉 <b>Приветственный бонус!</b>\n\n'
+                                f'Вы пришли по реферальной ссылке и сделали первое пополнение.\n\n'
+                                f'🎁 Ваш бонус ({welcome_money_percent}%): '
+                                f'{settings.format_price(welcome_money)}\n\n'
+                                f'💎 Средства зачислены на баланс (доступны для оплаты подписки).'
+                            ),
+                            user=user,
+                            bonus_kopeks=welcome_money,
+                        )
+                    if bot and referrer_welcome_ok:
+                        await send_referral_notification(
+                            bot,
+                            referrer.telegram_id,
+                            (
+                                f'🎉 <b>Приветственный бонус!</b>\n\n'
+                                f'Ваш реферал <b>{html.escape(user.full_name)}</b> сделал первое '
+                                f'пополнение на {settings.format_price(topup_amount_kopeks)}\n\n'
+                                f'🎁 Ваш бонус ({welcome_money_percent}%): '
+                                f'{settings.format_price(welcome_money)}\n\n'
+                                f'💎 Средства зачислены на баланс (доступны для оплаты подписки).'
+                            ),
+                            user=referrer,
+                            bonus_kopeks=welcome_money,
+                            referral_name=user.full_name,
+                        )
+
             if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
                 bonus_ok = await add_user_balance(
                     db,
@@ -913,4 +999,205 @@ async def process_referral_purchase(
         import traceback
 
         logger.error('Полный traceback', format_exc=traceback.format_exc())
+        return False
+
+
+async def _sync_bonus_subscription(db, subscription_service, subscription, owner) -> None:
+    """Синхронизирует подписку с панелью Remnawave после начисления бонусных дней."""
+    try:
+        if getattr(owner, 'remnawave_uuid', None):
+            await subscription_service.update_remnawave_user(
+                db, subscription, reset_traffic=False, reset_reason=None, sync_squads=True
+            )
+        else:
+            await subscription_service.create_remnawave_user(
+                db, subscription, reset_traffic=False, reset_reason=None
+            )
+    except Exception as error:
+        logger.error('Ошибка синхронизации бонусной подписки с Remnawave', error=error)
+        try:
+            from app.services.remnawave_retry_queue import remnawave_retry_queue
+
+            remnawave_retry_queue.enqueue(
+                subscription_id=subscription.id,
+                user_id=owner.id,
+                action='update' if getattr(owner, 'remnawave_uuid', None) else 'create',
+            )
+        except Exception as queue_error:
+            logger.error('Не удалось поставить бонусную подписку в очередь повтора', error=queue_error)
+
+
+async def _resolve_default_bonus_tariff(db: AsyncSession):
+    """Подбирает тариф для бонусной подписки реферера, у которого её ещё нет.
+
+    Если в настройках указан REFERRAL_WELCOME_DAYS_DEFAULT_TARIFF_ID — берём его
+    (если он активен). Иначе берём первый активный тариф по display_order.
+    """
+    from app.database.crud.tariff import get_all_active_tariffs, get_tariff_by_id
+
+    configured_id = settings.REFERRAL_WELCOME_DAYS_DEFAULT_TARIFF_ID
+    if configured_id and configured_id > 0:
+        tariff = await get_tariff_by_id(db, configured_id)
+        if tariff and tariff.is_active:
+            return tariff
+
+    tariffs = await get_all_active_tariffs(db)
+    tariffs.sort(key=lambda t: (t.display_order, t.id))
+    return tariffs[0] if tariffs else None
+
+
+async def process_referral_subscription_days_bonus(
+    db: AsyncSession, user_id: int, period_days: int, bot: Bot = None
+) -> bool:
+    """Приветственный бонус днями.
+
+    Бонус начисляется один раз на пару (реферер, реферал) при покупке периода
+    подписки от REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS дней.
+
+    bonus_days = round(period_days * REFERRAL_WELCOME_DAYS_PERCENT / 100).
+
+    Реферал: бонус добавляется к его активной подписке. Реферер: к активной (тариф
+    не меняем) либо создаётся новая на дефолтном тарифе из конфига.
+    """
+    bot = bot or _module_bot
+    try:
+        days_percent = settings.REFERRAL_WELCOME_DAYS_PERCENT
+        if days_percent <= 0:
+            return True
+
+        if period_days is None or period_days < settings.REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS:
+            return True
+
+        user = await get_user_by_id(db, user_id)
+        if not user or not user.referred_by_id:
+            return True
+
+        referrer = await get_user_by_id(db, user.referred_by_id)
+        if not referrer:
+            logger.warning(
+                'Реферер не найден для приветственного бонуса днями',
+                user_id=user_id,
+                referred_by_id=user.referred_by_id,
+            )
+            return False
+
+        # Партнёрская цепочка не получает welcome — см. process_referral_topup
+        if referrer.is_partner or user.is_partner:
+            logger.info(
+                'Партнёрская цепочка — welcome days не начисляется',
+                referrer_id=referrer.id,
+                user_id=user.id,
+                referrer_is_partner=referrer.is_partner,
+                user_is_partner=user.is_partner,
+            )
+            return True
+
+        # Разовый бонус: служебная пометка (amount=0 — на вывод не влияет)
+        already_granted = await db.execute(
+            select(ReferralEarning.id).where(
+                ReferralEarning.referral_id == user.id,
+                ReferralEarning.reason == 'referral_welcome_days',
+            )
+        )
+        if already_granted.first():
+            logger.info('Приветственный бонус днями уже начислен ранее', referral_id=user.id)
+            return True
+
+        # Округление до целого в большую сторону при ровной половине (15% от 30 → 5)
+        bonus_days = (period_days * days_percent + 50) // 100
+        if bonus_days <= 0:
+            return True
+
+        from app.database.crud.subscription import (
+            create_paid_subscription,
+            extend_subscription,
+            get_subscription_by_user_id,
+        )
+        from app.services.subscription_service import SubscriptionService
+
+        subscription_service = SubscriptionService()
+
+        # Другу — продлеваем только что купленную подписку (тариф у него уже есть)
+        friend_sub = await get_subscription_by_user_id(db, user.id)
+        if not friend_sub or not friend_sub.end_date:
+            logger.info(
+                'Друг без активной подписки — приветственный бонус днями пропущен', referral_id=user.id
+            )
+            return True
+        await extend_subscription(db, friend_sub, bonus_days)
+        await _sync_bonus_subscription(db, subscription_service, friend_sub, user)
+
+        # Пригласившему — продлеваем активную (тариф не меняем) или создаём
+        # новую на дефолтном тарифе из настроек.
+        referrer_sub = await get_subscription_by_user_id(db, referrer.id)
+        if referrer_sub:
+            await extend_subscription(db, referrer_sub, bonus_days)
+        else:
+            tariff = await _resolve_default_bonus_tariff(db)
+            if tariff is None:
+                logger.warning(
+                    'Дефолтный тариф для бонусной подписки реферера не найден; '
+                    'реферер не получит бонус',
+                    referrer_id=referrer.id,
+                )
+            else:
+                referrer_sub = await create_paid_subscription(
+                    db,
+                    referrer.id,
+                    bonus_days,
+                    traffic_limit_gb=tariff.traffic_limit_gb,
+                    device_limit=tariff.device_limit,
+                    connected_squads=list(tariff.allowed_squads or []),
+                    tariff_id=tariff.id,
+                )
+        if referrer_sub is not None:
+            await _sync_bonus_subscription(db, subscription_service, referrer_sub, referrer)
+
+        # Служебная пометка — бонус разовый
+        await create_referral_earning(
+            db=db,
+            user_id=referrer.id,
+            referral_id=user.id,
+            amount_kopeks=0,
+            reason='referral_welcome_days',
+        )
+
+        logger.info(
+            '🎁 Приветственный бонус днями начислен обоим',
+            referral_id=user.id,
+            referrer_id=referrer.id,
+            bonus_days=bonus_days,
+            period_days=period_days,
+        )
+
+        if bot:
+            await send_referral_notification(
+                bot,
+                user.telegram_id,
+                (
+                    f'🎉 <b>Приветственный бонус!</b>\n\n'
+                    f'Вы пришли по реферальной ссылке и оформили подписку.\n\n'
+                    f'🎁 Ваш бонус: <b>+{bonus_days} дн.</b> к подписке\n\n'
+                    f'⏰ Дни уже добавлены.'
+                ),
+                user=user,
+            )
+            if referrer_sub is not None:
+                await send_referral_notification(
+                    bot,
+                    referrer.telegram_id,
+                    (
+                        f'🎉 <b>Приветственный бонус!</b>\n\n'
+                        f'Ваш реферал <b>{html.escape(user.full_name)}</b> оформил подписку.\n\n'
+                        f'🎁 Ваш бонус: <b>+{bonus_days} дн.</b> к подписке\n\n'
+                        f'⏰ Дни уже добавлены.'
+                    ),
+                    user=referrer,
+                    referral_name=user.full_name,
+                )
+
+        return True
+
+    except Exception as e:
+        logger.error('Ошибка начисления приветственного бонуса днями', error=e)
         return False

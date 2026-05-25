@@ -6616,6 +6616,7 @@ async def purchase_tariff_endpoint(
         type=TransactionType.SUBSCRIPTION_PAYMENT,
         amount_kopeks=price_kopeks,
         description=description,
+        period_days=int(payload.period_days) if payload.period_days else None,
     )
 
     # Получаем список серверов из тарифа

@@ -1208,6 +1208,7 @@ class MiniAppSubscriptionPurchaseService:
             amount_kopeks=pricing.final_total,
             description=f'Подписка на {pricing.selection.period.days} дней ({pricing.months} мес)',
             payment_method=PaymentMethod.BALANCE,
+            period_days=pricing.selection.period.days,
         )
 
         await db.refresh(user)

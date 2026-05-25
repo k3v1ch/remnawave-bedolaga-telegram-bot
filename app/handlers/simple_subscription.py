@@ -472,6 +472,7 @@ async def handle_simple_subscription_pay_with_balance(
             amount_kopeks=price_kopeks,
             description=purchase_description,
             payment_method=PaymentMethod.BALANCE,
+            period_days=subscription_params['period_days'],
         )
 
         # Проверяем, есть ли у пользователя уже подписка
@@ -2220,6 +2221,7 @@ async def confirm_simple_subscription_purchase(
             amount_kopeks=price_kopeks,
             description=purchase_description,
             payment_method=PaymentMethod.BALANCE,
+            period_days=subscription_params['period_days'],
         )
 
         # Проверяем, есть ли у пользователя уже подписка

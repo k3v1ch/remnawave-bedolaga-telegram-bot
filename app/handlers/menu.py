@@ -1483,6 +1483,7 @@ async def handle_activate_button(callback: types.CallbackQuery, db_user: User, d
                 amount_kopeks=best_price,
                 description=f'Активация подписки на {best_period} дней',
                 payment_method=PaymentMethod.BALANCE,
+                period_days=best_period,
             )
 
             await callback.answer(

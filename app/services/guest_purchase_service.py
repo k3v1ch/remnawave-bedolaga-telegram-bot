@@ -477,6 +477,7 @@ async def fulfill_purchase(
                     payment_method=payment_method_enum,
                     external_id=purchase.payment_id,
                     is_completed=True,
+                    period_days=purchase.period_days,
                 )
             except Exception:
                 logger.exception('Failed to create transaction for guest purchase', purchase_id=purchase.id)
@@ -1230,6 +1231,7 @@ async def activate_purchase(db: AsyncSession, purchase_token: str, *, skip_notif
                     payment_method=payment_method_enum,
                     external_id=purchase.payment_id,
                     is_completed=True,
+                    period_days=purchase.period_days,
                 )
             except Exception:
                 logger.exception('Failed to create transaction for activated purchase', purchase_id=purchase.id)

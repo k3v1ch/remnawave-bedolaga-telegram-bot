@@ -558,6 +558,7 @@ class SubscriptionRenewalService:
                 amount_kopeks=final_total,
                 description=description_text,
                 payment_method=payment_method,
+                period_days=period_days,
             )
         except Exception as error:  # pragma: no cover - defensive logging
             logger.warning(

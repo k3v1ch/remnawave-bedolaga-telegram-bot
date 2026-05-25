@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database.models import (
+    PartnerStatus,
     ReferralEarning,
     Transaction,
     TransactionType,
@@ -194,22 +195,25 @@ class ReferralWithdrawalService:
         Возвращает (can_request, reason, stats).
         Принимает предвычисленные stats для избежания повторного запроса.
         """
+        empty_stats = {
+            'total_earned': 0,
+            'own_deposits': 0,
+            'spending': 0,
+            'referral_spent': 0,
+            'withdrawn': 0,
+            'pending': 0,
+            'available_referral': 0,
+            'available_total': 0,
+            'only_referral_mode': settings.REFERRAL_WITHDRAWAL_ONLY_REFERRAL_BALANCE,
+        }
+
         if not settings.is_referral_withdrawal_enabled():
-            return (
-                False,
-                'Функция вывода реферального баланса отключена',
-                {
-                    'total_earned': 0,
-                    'own_deposits': 0,
-                    'spending': 0,
-                    'referral_spent': 0,
-                    'withdrawn': 0,
-                    'pending': 0,
-                    'available_referral': 0,
-                    'available_total': 0,
-                    'only_referral_mode': settings.REFERRAL_WITHDRAWAL_ONLY_REFERRAL_BALANCE,
-                },
-            )
+            return False, 'Функция вывода реферального баланса отключена', empty_stats
+
+        # Вывод доступен только одобрённым партнёрам
+        user = await db.get(User, user_id)
+        if not user or user.partner_status != PartnerStatus.APPROVED.value:
+            return False, 'Вывод средств доступен только одобрённым партнёрам', empty_stats
 
         # Проверяем доступный баланс
         if stats is None:

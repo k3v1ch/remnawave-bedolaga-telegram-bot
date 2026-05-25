@@ -49,6 +49,7 @@ async def create_transaction(
     created_at: datetime | None = None,
     *,
     commit: bool = True,
+    period_days: int | None = None,
 ) -> Transaction:
     # SUBSCRIPTION_PAYMENT / GIFT_PAYMENT — always store as negative (debit from user balance)
     # Keep original for downstream consumers (events, contests)
@@ -132,6 +133,14 @@ async def create_transaction(
                 )
             except Exception as exc:
                 logger.debug('Не удалось записать событие конкурса для пользователя', user_id=user_id, exc=exc)
+            try:
+                from app.services.referral_service import process_referral_subscription_days_bonus
+
+                await process_referral_subscription_days_bonus(db, user_id, period_days)
+            except Exception as exc:
+                logger.debug(
+                    'Не удалось начислить бонусные дни реферальной программы', user_id=user_id, exc=exc
+                )
 
     return transaction
 
@@ -147,6 +156,7 @@ async def emit_transaction_side_effects(
     external_id: str | None = None,
     is_completed: bool = True,
     description: str = '',
+    period_days: int | None = None,
 ) -> None:
     """Fire side-effects that were deferred when create_transaction(commit=False) was used.
 
@@ -193,6 +203,13 @@ async def emit_transaction_side_effects(
             )
         except Exception as exc:
             logger.debug('Не удалось записать событие конкурса для пользователя', user_id=user_id, exc=exc)
+
+        try:
+            from app.services.referral_service import process_referral_subscription_days_bonus
+
+            await process_referral_subscription_days_bonus(db, user_id, period_days)
+        except Exception as exc:
+            logger.debug('Не удалось начислить бонусные дни реферальной программы', user_id=user_id, exc=exc)
 
 
 async def get_transaction_by_id(db: AsyncSession, transaction_id: int) -> Transaction | None:

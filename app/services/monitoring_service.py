@@ -1396,6 +1396,7 @@ class MonitoringService:
                                     amount_kopeks=charge_amount,
                                     description=f'Автопродление подписки на {autopay_period} дней',
                                     payment_method=PaymentMethod.BALANCE,
+                                    period_days=autopay_period,
                                 )
                             except Exception as exc:
                                 logger.warning('Не удалось создать транзакцию автопродления', user_id=user.id, exc=exc)
@@ -1536,7 +1537,6 @@ class MonitoringService:
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [build_cabinet_webapp_button(user.language)],
-                    [build_miniapp_or_callback_button(text='💳 Пополнить баланс', callback_data='balance_topup')],
                 ]
             )
 
@@ -1630,12 +1630,6 @@ class MonitoringService:
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [build_cabinet_webapp_button(user.language)],
-                    [
-                        build_miniapp_or_callback_button(
-                            text=texts.t('BTN_TOPUP_BALANCE', '💳 Пополнить баланс'),
-                            callback_data='balance_topup',
-                        )
-                    ],
                 ]
             )
 
@@ -1690,7 +1684,6 @@ class MonitoringService:
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [build_cabinet_webapp_button(user.language)],
-                    [build_miniapp_or_callback_button(text='💰 Пополнить баланс', callback_data='balance_topup')],
                 ]
             )
 
@@ -1840,12 +1833,6 @@ class MonitoringService:
                 inline_keyboard=[
                     [build_cabinet_webapp_button(user.language)],
                     [
-                        build_miniapp_or_callback_button(
-                            text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
-                            callback_data='balance_topup',
-                        )
-                    ],
-                    [
                         InlineKeyboardButton(
                             text=texts.t('SUPPORT_BUTTON', '🆘 Поддержка'), callback_data='menu_support'
                         )
@@ -1935,12 +1922,6 @@ class MonitoringService:
                     ],
                     [build_cabinet_webapp_button(user.language)],
                     [
-                        build_miniapp_or_callback_button(
-                            text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
-                            callback_data='balance_topup',
-                        )
-                    ],
-                    [
                         InlineKeyboardButton(
                             text=texts.t('SUPPORT_BUTTON', '🆘 Поддержка'), callback_data='menu_support'
                         )
@@ -2027,7 +2008,6 @@ class MonitoringService:
 
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [build_miniapp_or_callback_button(text='💳 Пополнить баланс', callback_data='balance_topup')],
                     [build_cabinet_webapp_button(user.language)],
                 ]
             )
@@ -2258,21 +2238,11 @@ class MonitoringService:
                         threshold=f'{threshold_rub:.0f}',
                     )
 
-                    # Build inline keyboard with cabinet top-up button
-                    keyboard = None
-                    miniapp_url = settings.get_main_menu_miniapp_url()
-                    if miniapp_url:
-                        topup_label = texts.get('LOW_BALANCE_TOPUP_BUTTON', '💳 Пополнить баланс')
-                        keyboard = InlineKeyboardMarkup(
-                            inline_keyboard=[
-                                [
-                                    InlineKeyboardButton(
-                                        text=topup_label,
-                                        web_app=WebAppInfo(url=miniapp_url),
-                                    )
-                                ]
-                            ]
-                        )
+                    keyboard = InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [build_cabinet_webapp_button(language)],
+                        ]
+                    )
 
                     await self.bot.send_message(
                         user.telegram_id,

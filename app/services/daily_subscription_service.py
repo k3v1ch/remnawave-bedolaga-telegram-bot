@@ -349,7 +349,7 @@ class DailySubscriptionService:
 
     async def _notify_insufficient_balance(self, user, subscription, required_amount: int):
         """Уведомляет пользователя о недостатке средств."""
-        from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+        from aiogram.types import InlineKeyboardMarkup
 
         get_texts(getattr(user, 'language', 'ru'))
         required_rubles = required_amount / 100
@@ -368,7 +368,6 @@ class DailySubscriptionService:
 
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
-                [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='menu_balance')],
                 [build_cabinet_webapp_button(getattr(user, 'language', None))],
             ]
         )

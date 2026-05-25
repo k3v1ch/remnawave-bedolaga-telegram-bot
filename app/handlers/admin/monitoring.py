@@ -183,12 +183,6 @@ async def _build_notification_preview_message(language: str, notification_type: 
                 [build_cabinet_webapp_button(language)],
                 [
                     InlineKeyboardButton(
-                        text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
-                        callback_data='balance_topup',
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
                         text=texts.t('SUPPORT_BUTTON', '🆘 Поддержка'),
                         callback_data='menu_support',
                     )
@@ -221,12 +215,6 @@ async def _build_notification_preview_message(language: str, notification_type: 
                     )
                 ],
                 [build_cabinet_webapp_button(language)],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
-                        callback_data='balance_topup',
-                    )
-                ],
                 [
                     InlineKeyboardButton(
                         text=texts.t('SUPPORT_BUTTON', '🆘 Поддержка'),
@@ -262,12 +250,6 @@ async def _build_notification_preview_message(language: str, notification_type: 
                     )
                 ],
                 [build_cabinet_webapp_button(language)],
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('BALANCE_TOPUP', '💳 Пополнить баланс'),
-                        callback_data='balance_topup',
-                    )
-                ],
                 [
                     InlineKeyboardButton(
                         text=texts.t('SUPPORT_BUTTON', '🆘 Поддержка'),
