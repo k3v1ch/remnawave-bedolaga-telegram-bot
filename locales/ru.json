@@ -1496,6 +1496,8 @@
   "SUBSCRIPTION_DAILY_OVERVIEW_TEMPLATE": "👤 {full_name}\n💰 Баланс: {balance}\n📱 Подписка: {status_emoji} {status_display}{warning}{tariff_info_block}\n\n📱 Информация о подписке\n🎭 Тип: {subscription_type}\n📈 Трафик: {traffic}\n🌍 Серверы: {servers}\n📱 Устройства: {devices_used} / {device_limit}",
   "SUBSCRIPTION_DEACTIVATED_CHANNEL_UNSUBSCRIBE": "🚫 Ваша подписка приостановлена, так как вы отписались от обязательного канала.\n\nПодпишитесь на все каналы для восстановления доступа к VPN.",
   "SUBSCRIPTION_DEACTIVATED_CHANNEL_UNSUBSCRIBE_MULTI": "🚫 Ваши подписки приостановлены, так как вы отписались от обязательного канала.\n\nПодпишитесь на все каналы для восстановления доступа к VPN.",
+  "SUBSCRIPTION_CHANNEL_LEAVE_GRACE_WARNING": "⚠️ Вы отписались от обязательного канала.\n\nУ вас есть {hours} ч, чтобы вернуться в канал, иначе доступ к VPN будет приостановлен. Подпишитесь на канал снова, чтобы сохранить доступ.",
+  "SUBSCRIPTION_CHANNEL_GRACE_CANCELLED": "✅ Спасибо, что вернулись в канал! Доступ к VPN сохранён.",
   "SUBSCRIPTION_PROMO_DISCOUNT_HINT": "⚡ Активирована доп. скидка {percent}%. \n\nСуммируется с другими скидками!",
   "SUBSCRIPTION_PROMO_DISCOUNT_NOTE": "⚡ Доп. скидка {percent}%: -{amount}",
   "SUBSCRIPTION_PROMO_DISCOUNT_TIMER": "⏳ Скидка действует ещё: {time_left}\n<code>{bar}</code>",

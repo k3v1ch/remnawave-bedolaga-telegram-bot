@@ -23,6 +23,7 @@ from app.database.models import SubscriptionStatus, UserStatus
 from app.keyboards.inline import get_channel_sub_keyboard
 from app.localization.loader import DEFAULT_LANGUAGE
 from app.localization.texts import get_texts
+from app.services import channel_grace
 from app.services.channel_subscription_service import channel_subscription_service
 from app.services.subscription_service import SubscriptionService
 
@@ -67,6 +68,11 @@ async def on_user_joined_channel(event: ChatMemberUpdated, bot: Bot) -> None:
             if db_user.status == UserStatus.BLOCKED.value:
                 return
 
+            # User is back in all required channels -> cancel any pending grace
+            # deadline. If the VPN was never disabled (resubscribed within the
+            # grace window) confirm that access was preserved.
+            grace_was_pending = channel_grace.clear_grace(db_user)
+
             subs = getattr(db_user, 'subscriptions', None) or []
             disabled_subs = [
                 s
@@ -74,6 +80,9 @@ async def on_user_joined_channel(event: ChatMemberUpdated, bot: Bot) -> None:
                 if s.status == SubscriptionStatus.DISABLED.value and (not s.end_date or s.end_date > datetime.now(UTC))
             ]
             if not disabled_subs:
+                if grace_was_pending:
+                    await db.commit()
+                    await channel_grace.send_grace_cancelled(bot, db_user)
                 return
 
             for subscription in disabled_subs:
@@ -163,8 +172,19 @@ async def on_user_left_channel(event: ChatMemberUpdated, bot: Bot) -> None:
             if not active_subs:
                 return
 
+            # Grace period: don't disable immediately on leave. Open a window
+            # and warn the user; the monitoring sweep disables once it expires.
+            grace_state = channel_grace.evaluate_grace(db_user)
+            if grace_state != channel_grace.GRACE_EXPIRED:
+                await db.commit()  # persist the deadline if it was just opened
+                if grace_state == channel_grace.GRACE_STARTED:
+                    unsub_channels = await channel_subscription_service.get_channels_with_status(user.id)
+                    await channel_grace.send_grace_warning(bot, db_user, unsub_channels)
+                return
+
             for subscription in active_subs:
                 await deactivate_subscription(db, subscription)
+            channel_grace.clear_grace(db_user)
             logger.info(
                 'Subscriptions deactivated via channel event',
                 telegram_id=user.id,

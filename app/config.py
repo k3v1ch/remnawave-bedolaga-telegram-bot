@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     CHANNEL_IS_REQUIRED_SUB: bool = False
     CHANNEL_DISABLE_TRIAL_ON_UNSUBSCRIBE: bool = True
     CHANNEL_REQUIRED_FOR_ALL: bool = False
+    # Grace period (hours) after a user leaves a required channel before the VPN
+    # is actually disabled. The user gets a warning + this much time to resubscribe.
+    # 0 = disable immediately (legacy behaviour).
+    CHANNEL_LEAVE_GRACE_HOURS: int = 24
 
     DATABASE_URL: str | None = None
 

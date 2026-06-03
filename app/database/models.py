@@ -1874,6 +1874,11 @@ class User(Base):
     last_activity = Column(AwareDateTime(), default=func.now())
     remnawave_uuid = Column(String(255), nullable=True, unique=True)
 
+    # Grace period before the VPN is disabled after leaving a required channel.
+    # NULL = no pending disable. Set to the deadline when the user leaves a
+    # required channel; cleared once they resubscribe to all required channels.
+    channel_grace_until = Column(AwareDateTime(), nullable=True)
+
     # Cabinet authentication fields
     email = Column(String(255), unique=True, nullable=True, index=True)
     email_verified = Column(Boolean, default=False, nullable=False)

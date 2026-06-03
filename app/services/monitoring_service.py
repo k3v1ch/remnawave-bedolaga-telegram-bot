@@ -55,6 +55,7 @@ from app.localization.texts import get_texts
 from app.services.notification_delivery_service import (
     notification_delivery_service,
 )
+from app.services import channel_grace
 from app.services.notification_settings_service import NotificationSettingsService
 from app.services.promo_offer_service import promo_offer_service
 from app.services.subscription_service import SubscriptionService, get_traffic_reset_strategy
@@ -817,6 +818,19 @@ class MonitoringService:
                                 all_subscribed = False
                                 unsubscribed_channels.append(ch)
 
+                        # Back in all channels -> cancel any pending grace deadline.
+                        # If the VPN was never disabled (still ACTIVE) confirm access
+                        # was preserved; the DISABLED->reactivate branch below sends
+                        # its own "restored" message instead.
+                        if all_subscribed and user.channel_grace_until is not None:
+                            cleared = channel_grace.clear_grace(user)
+                            if (
+                                cleared
+                                and subscription.status == SubscriptionStatus.ACTIVE.value
+                                and notifications_allowed
+                            ):
+                                await channel_grace.send_grace_cancelled(self.bot, user)
+
                         # DEACTIVATE: was active, now not subscribed to all
                         if subscription.status == SubscriptionStatus.ACTIVE.value and not all_subscribed:
                             if skip_deactivation:
@@ -828,6 +842,17 @@ class MonitoringService:
                                 for ch in unsubscribed_channels
                             )
                             if not should_disable:
+                                continue
+
+                            # Grace period: open a window + warn instead of disabling
+                            # immediately. The deadline (set on the user) is reused
+                            # across this user's subscriptions, so once it expires
+                            # every qualifying subscription is disabled. We do NOT
+                            # clear it here — clearing happens only on resubscribe.
+                            grace_state = channel_grace.evaluate_grace(user, now)
+                            if grace_state != channel_grace.GRACE_EXPIRED:
+                                if grace_state == channel_grace.GRACE_STARTED and notifications_allowed:
+                                    await channel_grace.send_grace_warning(self.bot, user, channels)
                                 continue
 
                             subscription = await deactivate_subscription(batch_db, subscription, commit=False)

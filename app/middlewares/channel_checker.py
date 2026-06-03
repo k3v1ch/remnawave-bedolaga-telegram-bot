@@ -17,6 +17,7 @@ from app.database.models import SubscriptionStatus, UserStatus
 from app.keyboards.inline import get_channel_sub_keyboard
 from app.localization.loader import DEFAULT_LANGUAGE
 from app.localization.texts import get_texts
+from app.services import channel_grace
 from app.services.admin_notification_service import AdminNotificationService
 from app.services.channel_subscription_service import channel_subscription_service
 from app.services.subscription_service import SubscriptionService
@@ -376,15 +377,26 @@ class ChannelCheckerMiddleware(BaseMiddleware):
                 # Per-channel settings: check if any unsubscribed channel requires deactivation
                 unsubscribed = [ch for ch in channels if not ch.get('is_subscribed', False)]
 
-                deactivated_subs = []
-                for subscription in active_subs:
-                    should_disable = any(
-                        channel_subscription_service.should_disable_subscription(ch, subscription.is_trial)
-                        for ch in unsubscribed
+                disable_candidates = [
+                    s
+                    for s in active_subs
+                    if any(
+                        channel_subscription_service.should_disable_subscription(ch, s.is_trial) for ch in unsubscribed
                     )
-                    if not should_disable:
-                        continue
+                ]
+                if not disable_candidates:
+                    return
 
+                # Grace period: warn first, disable only after the deadline.
+                grace_state = channel_grace.evaluate_grace(user)
+                if grace_state != channel_grace.GRACE_EXPIRED:
+                    await db.commit()  # persist the deadline if it was just opened
+                    if grace_state == channel_grace.GRACE_STARTED:
+                        await channel_grace.send_grace_warning(bot, user, _normalize_channels(channels))
+                    return
+
+                deactivated_subs = []
+                for subscription in disable_candidates:
                     await deactivate_subscription(db, subscription)
                     deactivated_subs.append(subscription)
                     sub_type = 'trial' if subscription.is_trial else 'paid'
@@ -393,6 +405,7 @@ class ChannelCheckerMiddleware(BaseMiddleware):
                         sub_type=sub_type,
                         telegram_id=telegram_id,
                     )
+                channel_grace.clear_grace(user)
 
                 service = SubscriptionService()
                 for subscription in deactivated_subs:
@@ -461,6 +474,9 @@ class ChannelCheckerMiddleware(BaseMiddleware):
                     logger.info('Skipping reactivation for blocked user', telegram_id=telegram_id)
                     return
 
+                # Back in all channels -> cancel any pending grace deadline.
+                grace_was_pending = channel_grace.clear_grace(user)
+
                 disabled_subs = [
                     s
                     for s in subs
@@ -468,6 +484,9 @@ class ChannelCheckerMiddleware(BaseMiddleware):
                     and (not s.end_date or s.end_date > datetime.now(UTC))
                 ]
                 if not disabled_subs:
+                    if grace_was_pending:
+                        await db.commit()
+                        await channel_grace.send_grace_cancelled(bot, user)
                     return
 
                 for subscription in disabled_subs:
