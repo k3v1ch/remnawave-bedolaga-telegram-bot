@@ -25,9 +25,14 @@ the repo convention established by migrations 0041, 0042, 0043, 0048,
 not supported, so the migration falls back to the standard
 ``create_index`` path there.
 
-Revision ID: 0086
-Revises: 0085
+Revision ID: 0086b
+Revises: 0086
 Create Date: 2026-05-28
+
+NOTE (форк): в апстриме эта ревизия называлась '0086', но наш форк уже
+занял номер 0086 миграцией add_channel_grace_until (применена в проде).
+При мерже v3.60.0 ревизия переименована в '0086b' и встроена в цепочку
+после нашей: 0085 → 0086 (grace) → 0086b (этот индекс) → 0087 → ...
 """
 
 from typing import Sequence, Union
@@ -35,8 +40,8 @@ from typing import Sequence, Union
 from alembic import op
 
 
-revision: str = '0086'
-down_revision: Union[str, None] = '0085'
+revision: str = '0086b'
+down_revision: Union[str, None] = '0086'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
