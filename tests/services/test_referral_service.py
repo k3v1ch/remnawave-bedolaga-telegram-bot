@@ -110,7 +110,7 @@ async def test_first_topup_inviter_gets_fixed_plus_commission(monkeypatch):
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_COMMISSION_PERCENT', 15)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_FIRST_PAYMENT_COMMISSION_PERCENT', None)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_RECURRING_COMMISSION_TIERS', '')
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_MONEY_PERCENT', 0)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 0)
 
     topup_amount = 50000  # 500 rub
 
@@ -272,92 +272,26 @@ async def test_calculate_recurring_commission_tier_boundary(paid_count, expected
     assert percent == expected_percent
 
 
-async def test_first_topup_welcome_money_bonus_non_withdrawable(monkeypatch):
-    """Приветственный бонус деньгами начисляется обоим и НЕ создаёт ReferralEarning."""
-    user = SimpleNamespace(
-        id=1,
-        telegram_id=101,
-        full_name='Test User',
-        referred_by_id=2,
-        has_made_first_topup=False,
-        is_partner=False,
-    )
-    referrer = SimpleNamespace(
-        id=2,
-        telegram_id=202,
-        full_name='Referrer',
-        email=None,
-        is_partner=False,
-    )
 
-    db = SimpleNamespace(
-        commit=AsyncMock(),
-        execute=AsyncMock(),
-    )
-
-    get_user_mock = AsyncMock(side_effect=[user, referrer])
-    monkeypatch.setattr(referral_service, 'get_user_by_id', get_user_mock)
-    add_user_balance_mock = AsyncMock(return_value=True)
-    monkeypatch.setattr(referral_service, 'add_user_balance', add_user_balance_mock)
-    create_referral_earning_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
-    monkeypatch.setattr(referral_service, 'get_commission_payment_count', AsyncMock(return_value=0))
-    monkeypatch.setattr(referral_service, 'get_user_campaign_id', AsyncMock(return_value=None))
-    monkeypatch.setattr(referral_service, 'get_effective_referral_commission_percent', lambda u: 0)
-    monkeypatch.setattr(referral_service, 'get_referral_reward_payment_count', AsyncMock(return_value=0))
-
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_MINIMUM_TOPUP_KOPEKS', 10000)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_FIRST_TOPUP_BONUS_KOPEKS', 0)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_BONUS_KOPEKS', 0)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_COMMISSION_PERCENT', 0)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_FIRST_PAYMENT_COMMISSION_PERCENT', None)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_RECURRING_COMMISSION_TIERS', '')
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_MONEY_PERCENT', 15)
-
-    topup_amount = 50000  # 500 rub
-
-    result = await referral_service.process_referral_topup(db, user.id, topup_amount)
-
-    assert result is True
-    assert user.has_made_first_topup is True
-
-    # Бонус начислен обоим: другу и пригласившему
-    assert add_user_balance_mock.await_count == 2
-    expected_bonus = int(50000 * 15 / 100)  # 7500
-
-    friend_call = add_user_balance_mock.await_args_list[0]
-    referrer_call = add_user_balance_mock.await_args_list[1]
-    assert friend_call.args[1] is user
-    assert friend_call.args[2] == expected_bonus
-    assert referrer_call.args[1] is referrer
-    assert referrer_call.args[2] == expected_bonus
-
-    # Бонус невыводимый — ReferralEarning не создаётся
-    create_referral_earning_mock.assert_not_awaited()
-
-
-async def test_first_topup_welcome_money_skipped_for_partner_chain(monkeypatch):
-    """Welcome 15% деньгами не начисляется, если инвитер — одобренный партнёр.
-
-    Партнёр живёт на индивидуальной комиссии + выводе реферального баланса,
-    welcome предназначен для обычных рефералов без права на вывод.
-    Комиссия партнёру при этом начисляется как обычно.
-    """
+async def test_inviter_days_awarded_on_qualifying_topup(monkeypatch):
+    """Пригласивший получает фикс. дни за пополнение друга от минимума; запись amount=0."""
     user = SimpleNamespace(
         id=1,
         telegram_id=101,
         full_name='Friend',
         referred_by_id=2,
-        has_made_first_topup=False,
+        has_made_first_topup=True,
         is_partner=False,
     )
     referrer = SimpleNamespace(
         id=2,
         telegram_id=202,
-        full_name='Partner',
+        full_name='Inviter',
         email=None,
-        is_partner=True,
+        is_partner=False,
+        remnawave_uuid='ref-uuid',
     )
+    referrer_sub = SimpleNamespace(id=20, end_date=object(), remnawave_uuid='ref-sub-uuid')
 
     db = SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
 
@@ -368,222 +302,195 @@ async def test_first_topup_welcome_money_skipped_for_partner_chain(monkeypatch):
     monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
     monkeypatch.setattr(referral_service, 'get_commission_payment_count', AsyncMock(return_value=0))
     monkeypatch.setattr(referral_service, 'get_user_campaign_id', AsyncMock(return_value=None))
-    monkeypatch.setattr(referral_service, 'get_effective_referral_commission_percent', lambda u: 25)
-    monkeypatch.setattr(referral_service, 'get_referral_reward_payment_count', AsyncMock(return_value=0))
+    monkeypatch.setattr(referral_service, 'get_referral_reward_payment_count', AsyncMock(return_value=1))
+    monkeypatch.setattr(referral_service, 'get_effective_referral_commission_percent', lambda u: 0)
+    monkeypatch.setattr(referral_service, '_sync_bonus_subscription', AsyncMock())
 
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_MINIMUM_TOPUP_KOPEKS', 10000)
+    extend_mock = AsyncMock()
+    create_paid_mock = AsyncMock()
+    import app.database.crud.subscription as sub_crud
+
+    monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
+    monkeypatch.setattr(sub_crud, 'create_paid_subscription', create_paid_mock)
+    monkeypatch.setattr(sub_crud, 'get_subscription_by_user_id', AsyncMock(return_value=referrer_sub))
+
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_MINIMUM_TOPUP_KOPEKS', 14900)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_FIRST_TOPUP_BONUS_KOPEKS', 0)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_BONUS_KOPEKS', 0)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_COMMISSION_PERCENT', 0)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_FIRST_PAYMENT_COMMISSION_PERCENT', None)
     monkeypatch.setattr(referral_service.settings, 'REFERRAL_RECURRING_COMMISSION_TIERS', '')
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_MONEY_PERCENT', 15)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 10)
 
-    topup_amount = 40000  # 400 ₽
-
-    result = await referral_service.process_referral_topup(db, user.id, topup_amount)
+    result = await referral_service.process_referral_topup(db, user.id, 14900)
 
     assert result is True
-    assert user.has_made_first_topup is True
+    # Дни добавлены к существующей подписке пригласившего
+    extend_mock.assert_awaited_once()
+    assert extend_mock.await_args.args[1] is referrer_sub
+    assert extend_mock.await_args.args[2] == 10
+    create_paid_mock.assert_not_awaited()
 
-    # Только одно начисление — комиссия 25% инвитеру; welcome обоим пропущен.
-    assert add_user_balance_mock.await_count == 1
-    inviter_call = add_user_balance_mock.await_args_list[0]
-    assert inviter_call.args[1] is referrer
-    assert inviter_call.args[2] == 10000  # 25% от 40000
+    # Денег никто не получает (комиссия 0, фиксы 0)
+    add_user_balance_mock.assert_not_awaited()
 
-    # ReferralEarning создаётся именно для комиссии (выводимый бонус), не для welcome.
+    # Служебная запись: amount=0 — на вывод не влияет
     create_referral_earning_mock.assert_awaited_once()
     earning_kwargs = create_referral_earning_mock.await_args.kwargs
-    assert earning_kwargs['reason'] == 'referral_first_topup'
-    assert earning_kwargs['amount_kopeks'] == 10000
+    assert earning_kwargs['reason'] == 'referral_inviter_topup_days'
+    assert earning_kwargs['amount_kopeks'] == 0
 
 
-async def test_welcome_days_skipped_for_partner_chain(monkeypatch):
-    """Welcome 15% днями не начисляется, если инвитер — одобренный партнёр."""
-    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', referred_by_id=2, is_partner=False)
-    referrer = SimpleNamespace(id=2, telegram_id=202, full_name='Partner', remnawave_uuid='ref-uuid', is_partner=True)
+async def test_inviter_days_awarded_on_repeat_topups(monkeypatch):
+    """Бонус днями повторяется с каждым квалифицированным пополнением."""
+    referrer_sub = SimpleNamespace(id=20, end_date=object(), remnawave_uuid='ref-sub-uuid')
+    db = SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
 
-    db = SimpleNamespace(execute=AsyncMock())
+    extend_mock = AsyncMock()
+    import app.database.crud.subscription as sub_crud
+
+    monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
+    monkeypatch.setattr(sub_crud, 'create_paid_subscription', AsyncMock())
+    monkeypatch.setattr(sub_crud, 'get_subscription_by_user_id', AsyncMock(return_value=referrer_sub))
+    monkeypatch.setattr(referral_service, '_sync_bonus_subscription', AsyncMock())
+    create_referral_earning_mock = AsyncMock()
+    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
+
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_MINIMUM_TOPUP_KOPEKS', 14900)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 10)
+
+    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', is_partner=False)
+    referrer = SimpleNamespace(
+        id=2, telegram_id=202, full_name='Inviter', email=None, is_partner=False, remnawave_uuid='x'
+    )
+
+    for _ in range(3):
+        await referral_service._award_inviter_topup_days(db, referrer, user, 14900)
+
+    assert extend_mock.await_count == 3
+    assert create_referral_earning_mock.await_count == 3
+
+
+async def test_inviter_days_skipped_for_partner_inviter(monkeypatch):
+    """Партнёр-инвитер дни не получает — он живёт на индивидуальной комиссии."""
+    db = SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
+
+    extend_mock = AsyncMock()
+    import app.database.crud.subscription as sub_crud
+
+    monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
+    create_referral_earning_mock = AsyncMock()
+    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
+
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 10)
+
+    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', is_partner=False)
+    partner = SimpleNamespace(id=2, telegram_id=202, full_name='Partner', email=None, is_partner=True)
+
+    await referral_service._award_inviter_topup_days(db, partner, user, 14900)
+
+    extend_mock.assert_not_awaited()
+    create_referral_earning_mock.assert_not_awaited()
+
+
+async def test_inviter_days_skipped_below_minimum_topup(monkeypatch):
+    """Пополнение ниже минимума не даёт дней пригласившему."""
+    user = SimpleNamespace(
+        id=1,
+        telegram_id=101,
+        full_name='Friend',
+        referred_by_id=2,
+        has_made_first_topup=True,
+        is_partner=False,
+    )
+    referrer = SimpleNamespace(
+        id=2, telegram_id=202, full_name='Inviter', email=None, is_partner=False
+    )
+
+    db = SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
 
     monkeypatch.setattr(referral_service, 'get_user_by_id', AsyncMock(side_effect=[user, referrer]))
-    create_referral_earning_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
+    monkeypatch.setattr(referral_service, 'add_user_balance', AsyncMock(return_value=True))
+    monkeypatch.setattr(referral_service, 'create_referral_earning', AsyncMock())
+    monkeypatch.setattr(referral_service, 'get_commission_payment_count', AsyncMock(return_value=0))
+    monkeypatch.setattr(referral_service, 'get_user_campaign_id', AsyncMock(return_value=None))
+    monkeypatch.setattr(referral_service, 'get_referral_reward_payment_count', AsyncMock(return_value=1))
+    monkeypatch.setattr(referral_service, 'get_effective_referral_commission_percent', lambda u: 0)
 
-    extend_mock = AsyncMock()
-    create_paid_mock = AsyncMock()
-    import app.database.crud.subscription as sub_crud
+    award_mock = AsyncMock()
+    monkeypatch.setattr(referral_service, '_award_inviter_topup_days', award_mock)
 
-    monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
-    monkeypatch.setattr(sub_crud, 'create_paid_subscription', create_paid_mock)
-    monkeypatch.setattr(sub_crud, 'get_subscription_by_user_id', AsyncMock())
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_MINIMUM_TOPUP_KOPEKS', 14900)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_COMMISSION_PERCENT', 0)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_FIRST_PAYMENT_COMMISSION_PERCENT', None)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_RECURRING_COMMISSION_TIERS', '')
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 10)
 
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_PERCENT', 15)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS', 7)
-
-    result = await referral_service.process_referral_subscription_days_bonus(db, user.id, period_days=30)
-
-    assert result is True
-    extend_mock.assert_not_awaited()
-    create_paid_mock.assert_not_awaited()
-    create_referral_earning_mock.assert_not_awaited()
-
-
-async def test_welcome_days_skipped_when_user_not_referred(monkeypatch):
-    """Бонус днями не начисляется, если у пользователя нет referred_by_id."""
-    user = SimpleNamespace(id=1, telegram_id=101, full_name='Solo User', referred_by_id=None)
-
-    db = SimpleNamespace(execute=AsyncMock())
-
-    get_user_mock = AsyncMock(return_value=user)
-    monkeypatch.setattr(referral_service, 'get_user_by_id', get_user_mock)
-    create_referral_earning_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
-
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_PERCENT', 15)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS', 7)
-
-    result = await referral_service.process_referral_subscription_days_bonus(db, user.id, period_days=30)
+    result = await referral_service.process_referral_topup(db, user.id, 5000)
 
     assert result is True
-    create_referral_earning_mock.assert_not_awaited()
+    award_mock.assert_not_awaited()
 
 
-async def test_welcome_days_skipped_when_period_below_threshold(monkeypatch):
-    """Бонус днями не начисляется, если куплено меньше минимального периода."""
-    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', referred_by_id=2)
-
-    db = SimpleNamespace(execute=AsyncMock())
-
-    get_user_mock = AsyncMock(return_value=user)
-    monkeypatch.setattr(referral_service, 'get_user_by_id', get_user_mock)
-    create_referral_earning_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
-
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_PERCENT', 15)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS', 7)
-
-    # Купили подписку на 3 дня — ниже порога в 7
-    result = await referral_service.process_referral_subscription_days_bonus(db, user.id, period_days=3)
-
-    assert result is True
-    # get_user_by_id даже не должен вызываться, т.к. проверка периода идёт раньше
-    create_referral_earning_mock.assert_not_awaited()
-
-
-async def test_welcome_days_skipped_when_period_days_missing(monkeypatch):
-    """Без явного period_days бонус не срабатывает — защита от старых call-site."""
-    db = SimpleNamespace(execute=AsyncMock())
-
-    get_user_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, 'get_user_by_id', get_user_mock)
-
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_PERCENT', 15)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS', 7)
-
-    result = await referral_service.process_referral_subscription_days_bonus(db, 1, period_days=None)
-
-    assert result is True
-    get_user_mock.assert_not_awaited()
-
-
-async def test_welcome_days_bonus_computed_from_period(monkeypatch):
-    """Бонус считается строго от period_days, а не от остатка подписки."""
-    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', referred_by_id=2, is_partner=False)
-    referrer = SimpleNamespace(id=2, telegram_id=202, full_name='Referrer', remnawave_uuid='ref-uuid', is_partner=False)
-
-    friend_sub = SimpleNamespace(id=10, end_date=object(), remnawave_uuid='friend-uuid')
-    referrer_sub = SimpleNamespace(id=20, end_date=object(), remnawave_uuid='ref-sub-uuid')
-
-    earnings_result = SimpleNamespace(first=lambda: None)
-    db = SimpleNamespace(execute=AsyncMock(return_value=earnings_result))
-
-    get_user_mock = AsyncMock(side_effect=[user, referrer])
-    monkeypatch.setattr(referral_service, 'get_user_by_id', get_user_mock)
-
-    create_referral_earning_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
-
-    sync_mock = AsyncMock()
-    monkeypatch.setattr(referral_service, '_sync_bonus_subscription', sync_mock)
-
-    extend_mock = AsyncMock()
-    create_paid_mock = AsyncMock()
-    get_sub_mock = AsyncMock(side_effect=[friend_sub, referrer_sub])
-
-    import app.database.crud.subscription as sub_crud
-
-    monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
-    monkeypatch.setattr(sub_crud, 'create_paid_subscription', create_paid_mock)
-    monkeypatch.setattr(sub_crud, 'get_subscription_by_user_id', get_sub_mock)
-
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_PERCENT', 15)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS', 7)
-
-    result = await referral_service.process_referral_subscription_days_bonus(db, user.id, period_days=30)
-
-    assert result is True
-
-    # 30 * 15% + 50 = 500 // 100 = 5 дней — округляется к целому
-    expected_bonus_days = 5
-    # У друга есть подписка → extend; у реферера тоже → extend (create_paid_subscription не вызван)
-    assert extend_mock.await_count == 2
-    create_paid_mock.assert_not_awaited()
-    assert extend_mock.await_args_list[0].args[1] is friend_sub
-    assert extend_mock.await_args_list[0].args[2] == expected_bonus_days
-    assert extend_mock.await_args_list[1].args[1] is referrer_sub
-    assert extend_mock.await_args_list[1].args[2] == expected_bonus_days
-
-    create_referral_earning_mock.assert_awaited_once()
-
-
-async def test_welcome_days_creates_default_sub_for_referrer_without_one(monkeypatch):
-    """Если у реферера нет подписки — создаём sub на дефолтном тарифе."""
-    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', referred_by_id=2, is_partner=False)
-    referrer = SimpleNamespace(id=2, telegram_id=202, full_name='Referrer', remnawave_uuid=None, is_partner=False)
-    friend_sub = SimpleNamespace(id=10, end_date=object(), remnawave_uuid='friend-uuid')
-
+async def test_inviter_days_creates_default_sub_when_inviter_has_none(monkeypatch):
+    """Если у пригласившего нет подписки — создаётся новая на дефолтном тарифе."""
+    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', is_partner=False)
+    referrer = SimpleNamespace(
+        id=2, telegram_id=202, full_name='Inviter', email=None, is_partner=False, remnawave_uuid=None
+    )
     default_tariff = SimpleNamespace(
-        id=1,
+        id=7,
         is_active=True,
         traffic_limit_gb=70,
         device_limit=5,
         allowed_squads=['squad-uuid'],
     )
 
-    earnings_result = SimpleNamespace(first=lambda: None)
-    db = SimpleNamespace(execute=AsyncMock(return_value=earnings_result))
+    db = SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
 
-    get_user_mock = AsyncMock(side_effect=[user, referrer])
-    monkeypatch.setattr(referral_service, 'get_user_by_id', get_user_mock)
-
-    resolve_tariff_mock = AsyncMock(return_value=default_tariff)
-    monkeypatch.setattr(referral_service, '_resolve_default_bonus_tariff', resolve_tariff_mock)
-
+    monkeypatch.setattr(referral_service, '_resolve_default_bonus_tariff', AsyncMock(return_value=default_tariff))
+    monkeypatch.setattr(referral_service, '_sync_bonus_subscription', AsyncMock())
     create_referral_earning_mock = AsyncMock()
     monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
-    monkeypatch.setattr(referral_service, '_sync_bonus_subscription', AsyncMock())
 
     extend_mock = AsyncMock()
     create_paid_mock = AsyncMock(return_value=SimpleNamespace(id=33))
-    get_sub_mock = AsyncMock(side_effect=[friend_sub, None])
-
     import app.database.crud.subscription as sub_crud
 
     monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
     monkeypatch.setattr(sub_crud, 'create_paid_subscription', create_paid_mock)
-    monkeypatch.setattr(sub_crud, 'get_subscription_by_user_id', get_sub_mock)
+    monkeypatch.setattr(sub_crud, 'get_subscription_by_user_id', AsyncMock(return_value=None))
 
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_PERCENT', 15)
-    monkeypatch.setattr(referral_service.settings, 'REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS', 7)
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 10)
 
-    result = await referral_service.process_referral_subscription_days_bonus(db, user.id, period_days=30)
+    await referral_service._award_inviter_topup_days(db, referrer, user, 14900)
 
-    assert result is True
-
-    # Реферер получил новую подписку на тарифе "Обычный"
+    extend_mock.assert_not_awaited()
     create_paid_mock.assert_awaited_once()
     call_kwargs = create_paid_mock.await_args.kwargs
     assert call_kwargs['tariff_id'] == default_tariff.id
     assert call_kwargs['traffic_limit_gb'] == default_tariff.traffic_limit_gb
     assert call_kwargs['device_limit'] == default_tariff.device_limit
+    create_referral_earning_mock.assert_awaited_once()
+
+
+async def test_inviter_days_disabled_when_setting_zero(monkeypatch):
+    """REFERRAL_INVITER_TOPUP_BONUS_DAYS=0 полностью выключает механику."""
+    db = SimpleNamespace(commit=AsyncMock(), execute=AsyncMock())
+
+    extend_mock = AsyncMock()
+    import app.database.crud.subscription as sub_crud
+
+    monkeypatch.setattr(sub_crud, 'extend_subscription', extend_mock)
+    create_referral_earning_mock = AsyncMock()
+    monkeypatch.setattr(referral_service, 'create_referral_earning', create_referral_earning_mock)
+
+    monkeypatch.setattr(referral_service.settings, 'REFERRAL_INVITER_TOPUP_BONUS_DAYS', 0)
+
+    user = SimpleNamespace(id=1, telegram_id=101, full_name='Friend', is_partner=False)
+    referrer = SimpleNamespace(id=2, telegram_id=202, full_name='Inviter', email=None, is_partner=False)
+
+    await referral_service._award_inviter_topup_days(db, referrer, user, 14900)
+
+    extend_mock.assert_not_awaited()
+    create_referral_earning_mock.assert_not_awaited()

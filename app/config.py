@@ -286,16 +286,13 @@ class Settings(BaseSettings):
     REFERRAL_RECURRING_COMMISSION_TIERS: str = ''  # Формат: "0:10,10:15,50:20,100:25"
     REFERRAL_MAX_COMMISSION_PAYMENTS: int = 0  # Макс. кол-во платежей реферала с комиссией (0 = без лимита)
 
-    # Приветственный бонус: начисляется ОБОИМ (пригласившему и приглашённому)
-    # % от первого пополнения реферала — деньгами на баланс (невыводимо, 0 = выключено)
-    REFERRAL_WELCOME_MONEY_PERCENT: int = 0
-    # % от срока купленной рефералом подписки — бонусными днями обоим (0 = выключено)
-    REFERRAL_WELCOME_DAYS_PERCENT: int = 0
-    # Минимальный период покупки (в днях) для активации бонуса по дням
-    REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS: int = 7
-    # ID тарифа для создаваемой бонусной подписки реферера, если у него ещё нет sub.
+    # Фиксированный бонус днями пригласившему за КАЖДОЕ пополнение реферала
+    # от REFERRAL_MINIMUM_TOPUP_KOPEKS (0 = выключено). Дни добавляются к
+    # активной подписке; если её нет — создаётся на дефолтном тарифе.
+    REFERRAL_INVITER_TOPUP_BONUS_DAYS: int = 10
+    # ID тарифа для создаваемой бонусной подписки пригласившего, если у него ещё нет sub.
     # 0 = первый активный тариф по display_order
-    REFERRAL_WELCOME_DAYS_DEFAULT_TARIFF_ID: int = 0
+    REFERRAL_BONUS_DAYS_DEFAULT_TARIFF_ID: int = 0
 
     REFERRAL_PROGRAM_ENABLED: bool = True
     REFERRAL_NOTIFICATIONS_ENABLED: bool = True
@@ -3004,10 +3001,8 @@ class Settings(BaseSettings):
             'first_topup_bonus_kopeks': self.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS,
             'inviter_bonus_kopeks': self.REFERRAL_INVITER_BONUS_KOPEKS,
             'commission_percent': self.REFERRAL_COMMISSION_PERCENT,
-            'welcome_money_percent': self.REFERRAL_WELCOME_MONEY_PERCENT,
-            'welcome_days_percent': self.REFERRAL_WELCOME_DAYS_PERCENT,
-            'welcome_days_min_period_days': self.REFERRAL_WELCOME_DAYS_MIN_PERIOD_DAYS,
-            'welcome_days_default_tariff_id': self.REFERRAL_WELCOME_DAYS_DEFAULT_TARIFF_ID,
+            'inviter_topup_bonus_days': self.REFERRAL_INVITER_TOPUP_BONUS_DAYS,
+            'bonus_days_default_tariff_id': self.REFERRAL_BONUS_DAYS_DEFAULT_TARIFF_ID,
             'first_payment_commission_percent': self.REFERRAL_FIRST_PAYMENT_COMMISSION_PERCENT,
             'recurring_commission_tiers': self.REFERRAL_RECURRING_COMMISSION_TIERS,
             'notifications_enabled': self.REFERRAL_NOTIFICATIONS_ENABLED,

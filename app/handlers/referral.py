@@ -102,20 +102,14 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
             '• Вы получаете при первом пополнении реферала: <b>{bonus}</b>',
         ).format(bonus=texts.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
 
-    if settings.REFERRAL_WELCOME_MONEY_PERCENT > 0:
+    if settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS > 0 and not db_user.is_partner:
         referral_text += '\n' + texts.t(
-            'REFERRAL_REWARD_WELCOME_MONEY',
-            '• Вы и ваш друг получаете <b>+{percent}%</b> от его первого пополнения на баланс (от <b>{minimum}</b>)',
+            'REFERRAL_REWARD_INVITER_DAYS',
+            '• Вы получаете <b>+{days} дн.</b> к подписке за каждое пополнение друга от <b>{minimum}</b>',
         ).format(
-            percent=settings.REFERRAL_WELCOME_MONEY_PERCENT,
+            days=settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS,
             minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS),
         )
-
-    if settings.REFERRAL_WELCOME_DAYS_PERCENT > 0:
-        referral_text += '\n' + texts.t(
-            'REFERRAL_REWARD_WELCOME_DAYS',
-            '• Вы и ваш друг получаете <b>+{percent}%</b> дней к подписке, когда он оформляет подписку',
-        ).format(percent=settings.REFERRAL_WELCOME_DAYS_PERCENT)
 
     commission_percent = get_effective_referral_commission_percent(db_user)
     if commission_percent > 0:
@@ -525,32 +519,7 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
     cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
 
     bonus_block = ''
-    bonus_lines = []
-    if settings.REFERRAL_WELCOME_DAYS_PERCENT > 0:
-        bonus_lines.append(
-            texts.t(
-                'REFERRAL_INVITE_BONUS_DAYS',
-                '🎁 +{percent}% дней к подписке',
-            ).format(percent=settings.REFERRAL_WELCOME_DAYS_PERCENT)
-        )
-    if settings.REFERRAL_WELCOME_MONEY_PERCENT > 0:
-        bonus_lines.append(
-            texts.t(
-                'REFERRAL_INVITE_BONUS_MONEY',
-                '💎 +{percent}% от пополнения на баланс',
-            ).format(percent=settings.REFERRAL_WELCOME_MONEY_PERCENT)
-        )
-    if bonus_lines:
-        bonus_block = (
-            '\n\n'
-            + texts.t(
-                'REFERRAL_INVITE_BONUS_HEADER',
-                '🤝 Бонус нам обоим при оплате подписки от {minimum}:',
-            ).format(minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS))
-            + '\n'
-            + '\n'.join(bonus_lines)
-        )
-    elif settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
+    if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
         bonus_block = '\n\n' + texts.t(
             'REFERRAL_INVITE_BONUS',
             '💎 При первом пополнении от {minimum} ты получишь {bonus} бонусом на баланс!',

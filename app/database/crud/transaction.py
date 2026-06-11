@@ -159,14 +159,6 @@ async def create_transaction(
                 )
             except Exception as exc:
                 logger.debug('Не удалось записать событие конкурса для пользователя', user_id=user_id, exc=exc)
-            try:
-                from app.services.referral_service import process_referral_subscription_days_bonus
-
-                await process_referral_subscription_days_bonus(db, user_id, period_days)
-            except Exception as exc:
-                logger.debug(
-                    'Не удалось начислить бонусные дни реферальной программы', user_id=user_id, exc=exc
-                )
 
     return transaction
 
@@ -229,13 +221,6 @@ async def emit_transaction_side_effects(
             )
         except Exception as exc:
             logger.debug('Не удалось записать событие конкурса для пользователя', user_id=user_id, exc=exc)
-
-        try:
-            from app.services.referral_service import process_referral_subscription_days_bonus
-
-            await process_referral_subscription_days_bonus(db, user_id, period_days)
-        except Exception as exc:
-            logger.debug('Не удалось начислить бонусные дни реферальной программы', user_id=user_id, exc=exc)
 
 
 async def get_transaction_by_id(db: AsyncSession, transaction_id: int) -> Transaction | None:

@@ -307,10 +307,6 @@ async def main():
         daily_subscription_service.set_bot(bot)
         telegram_notifier.set_bot(bot)
 
-        from app.services.referral_service import set_referral_service_bot
-
-        set_referral_service_bot(bot)
-
         from app.services.channel_subscription_service import channel_subscription_service
 
         channel_subscription_service.bot = bot

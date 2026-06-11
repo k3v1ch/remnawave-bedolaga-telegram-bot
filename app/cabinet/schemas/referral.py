@@ -83,7 +83,6 @@ class ReferralTermsResponse(BaseModel):
     first_topup_bonus_rubles: float
     inviter_bonus_kopeks: int
     inviter_bonus_rubles: float
-    welcome_money_percent: int = 0
-    welcome_days_percent: int = 0
+    inviter_topup_bonus_days: int = 0
     max_commission_payments: int = 0
     partner_section_visible: bool = True
