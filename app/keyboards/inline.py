@@ -41,41 +41,100 @@ async def get_main_menu_keyboard_async(
     custom_buttons: list[InlineKeyboardButton] | None = None,
     user=None,
 ) -> InlineKeyboardMarkup:
-    """Кастомное главное меню форка: Кабинет (WebApp) / Подключиться / Пригласить / Инфо.
+    """KELDARI-UI: главное меню форка по эталону SCR-MAIN-MENU (ВЕРНО VPN).
 
-    Все handlers (баланс, промокод, поддержка, язык, конкурсы, подписка) остаются
-    зарегистрированными и доступны через callback'и из miniapp/API, но из UI
-    бота скрыты по продуктовому требованию.
+    Раскладка (kb_main_menu эталона):
+    - CTA: [Попробовать бесплатно] (триал доступен) / [Выбрать тариф]
+      (триал использован и нет активной подписки); при активной подписке CTA нет;
+    - [Открыть приложение] — WebApp кабинета (primary);
+    - [Управление подпиской] / [Реферальная программа];
+    - [Инструкция](URL) + [Поддержка] в один ряд;
+    - [Информация о нас];
+    - custom-кнопки из MainMenuButtonService и админ/модератор-кнопки — ниже.
     """
     texts = get_texts(language)
     rows: list[list[InlineKeyboardButton]] = []
 
-    rows.append([build_cabinet_webapp_button(language)])
+    has_subscription_now = bool(has_active_subscription and subscription_is_active)
 
-    if has_active_subscription and subscription_is_active:
-        subscription_link = get_display_subscription_link(subscription) if subscription else None
-        if subscription_link and subscription_link.startswith(('http://', 'https://')):
+    trial_available = False
+    if user is not None:
+        try:
+            trial_available = not user.is_trial_already_used()
+        except Exception as trial_error:
+            logger.debug('KELDARI-UI: не удалось определить доступность триала', error=trial_error)
+
+    if not has_subscription_now:
+        if trial_available:
             rows.append(
                 [
                     InlineKeyboardButton(
-                        text=texts.t('CONNECT_BUTTON', '🔗 Подключиться'),
-                        url=subscription_link,
+                        text=texts.t('KELDARI_MAIN_MENU_TRIAL_BUTTON', 'Попробовать бесплатно'),
+                        callback_data='trial_activate',
+                        style='primary',
+                    )
+                ]
+            )
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('KELDARI_MAIN_MENU_CHOOSE_TARIFF_BUTTON', 'Выбрать тариф'),
+                        callback_data='tariff_list',
+                        style='primary',
                     )
                 ]
             )
 
+    open_app_button = build_cabinet_webapp_button(language).model_copy(
+        update={
+            'text': texts.t('KELDARI_MAIN_MENU_OPEN_APP_BUTTON', 'Открыть приложение'),
+            'style': 'primary',
+        }
+    )
+    rows.append([open_app_button])
+
     rows.append(
         [
             InlineKeyboardButton(
-                text=texts.t('MAIN_MENU_INVITE_BUTTON', '👥 Пригласить'),
+                text=texts.t('KELDARI_MAIN_MENU_ACCOUNT_BUTTON', 'Управление подпиской'),
+                callback_data='menu_subscription',
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_MAIN_MENU_REF_BUTTON', 'Реферальная программа'),
                 callback_data='menu_referrals',
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_MAIN_MENU_INSTRUCTIONS_BUTTON', 'Инструкция'),
+                url=texts.t('KELDARI_INSTRUCTIONS_URL', 'https://telegra.ph/verno-vpn-instructions'),
             ),
             InlineKeyboardButton(
-                text=texts.t('MAIN_MENU_INFO_BUTTON', 'ℹ️ Инфо'),
-                callback_data='menu_info',
+                text=texts.t('KELDARI_MAIN_MENU_SUPPORT_BUTTON', 'Поддержка'),
+                callback_data='menu_support',
             ),
         ]
     )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_MAIN_MENU_ABOUT_BUTTON', 'Информация о нас'),
+                callback_data='menu_info',
+            )
+        ]
+    )
+
+    if custom_buttons:
+        for button in custom_buttons:
+            if isinstance(button, InlineKeyboardButton):
+                rows.append([button])
 
     if is_admin:
         rows.append(
@@ -220,6 +279,8 @@ def get_channel_sub_keyboard(
 
 
 def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+    # KELDARI-UI: онбординг-клавиатура по эталону SCR-START-NEW —
+    # [Попробовать бесплатно](primary) / [Посмотреть тарифы] / [Как это работает].
     texts = get_texts(language)
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -227,6 +288,19 @@ def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKe
                 InlineKeyboardButton(
                     text=texts.t('POST_REGISTRATION_TRIAL_BUTTON', '🚀 Подключиться бесплатно 🚀'),
                     callback_data='trial_activate',
+                    style='primary',
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ONB_TARIFFS_BUTTON', 'Посмотреть тарифы'),
+                    callback_data='keldari_tariffs_info',
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ONB_HOW_BUTTON', 'Как это работает'),
+                    callback_data='keldari_how_it_works',
                 )
             ],
             [InlineKeyboardButton(text=texts.t('SKIP_BUTTON', 'Пропустить ➡️'), callback_data='back_to_menu')],
@@ -1117,6 +1191,10 @@ def get_subscription_keyboard(
                 ]
             )
 
+        # KELDARI-UI: SCR-ACCOUNT B — кнопка подключения акцентная (primary)
+        if keyboard:
+            keyboard[0] = [btn.model_copy(update={'style': 'primary'}) for btn in keyboard[0]]
+
         happ_row = get_happ_download_button_row(texts)
         if happ_row:
             keyboard.append(happ_row)
@@ -1151,33 +1229,39 @@ def get_subscription_keyboard(
                     [InlineKeyboardButton(text=pause_text, callback_data='toggle_daily_subscription_pause')]
                 )
             else:
-                # Для обычного тарифа: [Продлить] [Автоплатеж]
+                # KELDARI-UI: порядок рядов как SCR-ACCOUNT B эталона —
+                # [Продлить](primary) / [Сменить тариф] / [Настройки] / ... / [Автоплатеж] ниже
                 keyboard.append(
                     [
-                        InlineKeyboardButton(text=texts.MENU_EXTEND_SUBSCRIPTION, callback_data='subscription_extend'),
                         InlineKeyboardButton(
-                            text=texts.t('AUTOPAY_BUTTON', '💳 Автоплатеж'),
-                            callback_data='subscription_autopay',
-                        ),
+                            text=texts.MENU_EXTEND_SUBSCRIPTION,
+                            callback_data='subscription_extend',
+                            style='primary',
+                        )
                     ]
                 )
 
-            # Ряд: [Настройки] [Тариф] (если режим тарифов)
-            settings_row = [
-                InlineKeyboardButton(
-                    text=texts.t('SUBSCRIPTION_SETTINGS_BUTTON', '⚙️ Настройки'),
-                    callback_data='subscription_settings',
-                )
-            ]
+            # KELDARI-UI: [Сменить тариф] отдельным рядом (если режим тарифов)
             if settings.is_tariffs_mode() and subscription:
                 # Для суточных тарифов переходим на список тарифов, для обычных - мгновенное переключение
                 tariff_callback = 'tariff_switch' if is_daily_tariff else 'instant_switch'
-                settings_row.append(
-                    InlineKeyboardButton(
-                        text=texts.t('CHANGE_TARIFF_BUTTON', '📦 Тариф'), callback_data=tariff_callback
-                    )
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            text=texts.t('CHANGE_TARIFF_BUTTON', '📦 Тариф'), callback_data=tariff_callback
+                        )
+                    ]
                 )
-            keyboard.append(settings_row)
+
+            # Ряд: [Настройки] (устройства и пр.)
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('SUBSCRIPTION_SETTINGS_BUTTON', '⚙️ Настройки'),
+                        callback_data='subscription_settings',
+                    )
+                ]
+            )
 
             # Кнопка докупки трафика для платных подписок
             # В режиме тарифов проверяем can_topup_traffic() у тарифа, в классическом - глобальные настройки
@@ -1196,6 +1280,27 @@ def get_subscription_keyboard(
                         )
                     ]
                 )
+
+            # KELDARI-UI: [Автоплатеж] ниже основных действий (функционал сохранён)
+            if not is_daily_tariff:
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            text=texts.t('AUTOPAY_BUTTON', '💳 Автоплатеж'),
+                            callback_data='subscription_autopay',
+                        )
+                    ]
+                )
+
+        # KELDARI-UI: ряд [Баланс] как в SCR-ACCOUNT эталона
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ACC_BALANCE_BUTTON', 'Баланс'),
+                    callback_data='menu_balance',
+                )
+            ]
+        )
 
     keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
 
@@ -1487,13 +1592,19 @@ def get_subscription_confirm_keyboard(language: str = DEFAULT_LANGUAGE) -> Inlin
 
 
 def get_balance_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMarkup:
+    # KELDARI-UI: раскладка SCR-BALANCE эталона — 1 кнопка в ряд:
+    # [Пополнить](primary) / [Ввести промокод] / [История операций] / [‹ Назад]
     texts = get_texts(language)
 
     keyboard = [
+        [InlineKeyboardButton(text=texts.BALANCE_TOP_UP, callback_data='balance_topup', style='primary')],
         [
-            InlineKeyboardButton(text=texts.BALANCE_HISTORY, callback_data='balance_history'),
-            InlineKeyboardButton(text=texts.BALANCE_TOP_UP, callback_data='balance_topup'),
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_BALANCE_PROMOCODE_BUTTON', 'Ввести промокод'),
+                callback_data='menu_promocode',
+            )
         ],
+        [InlineKeyboardButton(text=texts.BALANCE_HISTORY, callback_data='balance_history')],
     ]
     if settings.YOOKASSA_RECURRENT_ENABLED:
         keyboard.append(

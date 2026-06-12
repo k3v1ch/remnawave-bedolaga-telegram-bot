@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 from typing import Any
 
 import structlog
@@ -93,6 +94,18 @@ _DYNAMIC_LANGUAGE_CONFIGS = {
 }
 
 
+# KELDARI-UI: кэш проверки «SUPPORT_INFO задан в user-локали» — Texts создаётся на
+# каждый запрос, читать файл оверрайда каждый раз нельзя. Кэш чистится в reload_locales().
+@functools.cache
+def _user_locale_overrides_support_info(language: str) -> bool:
+    from app.localization.loader import _load_user_locale
+
+    try:
+        return 'SUPPORT_INFO' in _load_user_locale(language or DEFAULT_LANGUAGE)
+    except Exception:
+        return False
+
+
 _TRAFFIC_TIERS = (
     ('TRAFFIC_5GB', '5', 'PRICE_TRAFFIC_5GB'),
     ('TRAFFIC_10GB', '10', 'PRICE_TRAFFIC_10GB'),
@@ -154,7 +167,11 @@ class Texts:
 
         self._fallback_values = {key: value for key, value in fallback_data.items() if key not in self._values}
 
-        self._values.update(_build_dynamic_values(self.language))
+        dynamic_values = _build_dynamic_values(self.language)
+        # KELDARI-UI: не перетирать SUPPORT_INFO, если ключ задан в user-локали (locale override)
+        if _user_locale_overrides_support_info(self.language):
+            dynamic_values.pop('SUPPORT_INFO', None)
+        self._values.update(dynamic_values)
 
     def __getattr__(self, item: str) -> Any:
         if item == 'language':
@@ -295,3 +312,4 @@ def clear_rules_cache() -> None:
 
 def reload_locales() -> None:
     clear_locale_cache()
+    _user_locale_overrides_support_info.cache_clear()  # KELDARI-UI
