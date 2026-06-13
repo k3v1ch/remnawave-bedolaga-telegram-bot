@@ -47,6 +47,7 @@ from app.database.crud.user import (
 )
 from app.database.models import User
 from app.localization.texts import get_texts
+from app.utils.notification_prefs import get_user_notification_pref
 from app.utils.photo_message import edit_or_answer_photo
 
 
@@ -56,6 +57,22 @@ EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 MIN_PASSWORD_LEN = 8
 MAX_PASSWORD_LEN = 128
 MAX_CODE_ATTEMPTS = 3
+
+# Тумблеры уведомлений (SCR-NOTIFICATIONS). Ключи/дефолты канонические
+# (app.utils.notification_prefs), поэтому переключение РЕАЛЬНО гейтит отправку
+# уведомлений Бедолаги, а не просто сохраняется. Маппинг на 4 пункта макета.
+KELDARI_NOTIF_TOGGLES = (
+    ('subscription_expiry_enabled', '📅 Истечение подписки'),
+    ('balance_low_enabled', '💸 Низкий баланс'),
+    ('promo_offers_enabled', '🎁 Бонусы и акции'),
+    ('news_enabled', '🤖 Новости'),
+)
+KELDARI_NOTIF_KEYS = frozenset(k for k, _ in KELDARI_NOTIF_TOGGLES)
+KELDARI_NOTIF_SCREEN_DEFAULT = (
+    '🔔 Настройки уведомлений\n'
+    '\n'
+    'Нажмите на пункт, чтобы включить или выключить:'
+)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -133,6 +150,7 @@ def _profile_keyboard(user: User, texts) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_CHANGE_PASSWORD_BUTTON', 'Сменить пароль'), callback_data='kprofile_change_password')])
     else:
         rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_BIND_BUTTON', 'Добавить email и пароль'), callback_data='kprofile_bind', style='primary')])
+    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_NOTIF_BUTTON', '🔔 Уведомления'), callback_data='kprofile_notifications')])
     rows.append([InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='menu_subscription')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -461,12 +479,70 @@ async def change_password_new(message: types.Message, db_user: User, db: AsyncSe
     await message.answer('✅ Пароль изменён.', reply_markup=_back_to_profile_keyboard(texts))
 
 
+# ─────────────────────────────────────────────────────────────
+# Уведомления (тумблеры) — SCR-NOTIFICATIONS
+# ─────────────────────────────────────────────────────────────
+
+def _notif_keyboard(user: User, texts) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for key, label in KELDARI_NOTIF_TOGGLES:
+        on = bool(get_user_notification_pref(user, key))
+        rows.append([
+            InlineKeyboardButton(text=f'{label}: {"🔔" if on else "🔕"}', callback_data=f'kprofile_notif_toggle:{key}')
+        ])
+    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='keldari_profile')])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def show_notifications(callback: types.CallbackQuery, db_user: User, state: FSMContext):
+    await state.clear()
+    texts = get_texts(db_user.language)
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=texts.t('KELDARI_NOTIF_SCREEN', KELDARI_NOTIF_SCREEN_DEFAULT),
+        keyboard=_notif_keyboard(db_user, texts),
+        parse_mode='HTML',
+    )
+    await callback.answer()
+
+
+async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    texts = get_texts(db_user.language)
+    data = callback.data or ''
+    key = data.split(':', 1)[1] if ':' in data else ''
+    if key not in KELDARI_NOTIF_KEYS:
+        await callback.answer()
+        return
+    new_value = not bool(get_user_notification_pref(db_user, key))
+    try:
+        new_settings = dict(db_user.notification_settings or {})
+        new_settings[key] = new_value
+        db_user.notification_settings = new_settings  # переприсваиваем dict — фиксируем изменение JSONB
+        await db.commit()
+        await db.refresh(db_user)
+        logger.info('keldari_profile: тумблер уведомления', user_id=db_user.id, key=key, value=new_value)
+    except Exception as error:
+        await db.rollback()
+        logger.error('keldari_profile: ошибка сохранения тумблера', user_id=db_user.id, key=key, error=str(error))
+        await callback.answer('Ошибка сохранения', show_alert=True)
+        return
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=texts.t('KELDARI_NOTIF_SCREEN', KELDARI_NOTIF_SCREEN_DEFAULT),
+        keyboard=_notif_keyboard(db_user, texts),
+        parse_mode='HTML',
+    )
+    await callback.answer('🔔 Включено' if new_value else '🔕 Выключено')
+
+
 def register_handlers(dp: Dispatcher):
     dp.callback_query.register(show_profile, F.data == 'keldari_profile')
     dp.callback_query.register(cancel_flow, F.data == 'kprofile_cancel')
     dp.callback_query.register(bind_start, F.data == 'kprofile_bind')
     dp.callback_query.register(change_email_start, F.data == 'kprofile_change_email')
     dp.callback_query.register(change_password_start, F.data == 'kprofile_change_password')
+    dp.callback_query.register(show_notifications, F.data == 'kprofile_notifications')
+    dp.callback_query.register(toggle_notification, F.data.startswith('kprofile_notif_toggle:'))
 
     dp.message.register(bind_email, StateFilter(BindEmailStates.waiting_email))
     dp.message.register(bind_password, StateFilter(BindEmailStates.waiting_password))
