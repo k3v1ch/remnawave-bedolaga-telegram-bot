@@ -286,7 +286,7 @@ def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKe
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=texts.t('POST_REGISTRATION_TRIAL_BUTTON', '🚀 Подключиться бесплатно 🚀'),
+                    text=texts.t('KELDARI_MAIN_MENU_TRIAL_BUTTON', 'Попробовать бесплатно'),
                     callback_data='trial_activate',
                     style='primary',
                 )
@@ -303,7 +303,13 @@ def get_post_registration_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKe
                     callback_data='keldari_how_it_works',
                 )
             ],
-            [InlineKeyboardButton(text=texts.t('SKIP_BUTTON', 'Пропустить ➡️'), callback_data='back_to_menu')],
+            # KELDARI-UI: эталон SCR-START-NEW не содержит «Пропустить» — вместо неё [‹ Главное меню]
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_MAIN_MENU_BACK_BUTTON', '‹ Главное меню'),
+                    callback_data='back_to_menu',
+                )
+            ],
         ]
     )
 
@@ -1195,6 +1201,27 @@ def get_subscription_keyboard(
         if keyboard:
             keyboard[0] = [btn.model_copy(update={'style': 'primary'}) for btn in keyboard[0]]
 
+        # KELDARI-UI: SCR-ACCOUNT B — [Скопировать ключ] + [🔄 Сбросить ключ](danger)
+        if subscription_link:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('KELDARI_ACC_COPY_KEY_BUTTON', 'Скопировать ключ'),
+                        callback_data=f'open_subscription_link{_sub_suffix}',
+                    )
+                ]
+            )
+        if settings.is_subscription_revoke_enabled():
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('KELDARI_ACC_KEY_RESET_BUTTON', '🔄 Сбросить ключ'),
+                        callback_data='subscription_revoke',
+                        style='danger',
+                    )
+                ]
+            )
+
         happ_row = get_happ_download_button_row(texts)
         if happ_row:
             keyboard.append(happ_row)
@@ -1292,13 +1319,35 @@ def get_subscription_keyboard(
                     ]
                 )
 
-        # KELDARI-UI: ряд [Баланс] как в SCR-ACCOUNT эталона
+        # KELDARI-UI: [Устройства] (прямой доступ) — как в SCR-ACCOUNT эталона
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ACC_DEVICES_BUTTON', 'Устройства'),
+                    callback_data='subscription_manage_devices',
+                )
+            ]
+        )
+        # KELDARI-UI: [Мои подарки] — заглушка (бэкенда дарения пока нет)
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ACC_GIFTS_BUTTON', 'Мои подарки'),
+                    callback_data='keldari_soon:gifts',
+                )
+            ]
+        )
+        # KELDARI-UI: ряд [Баланс]+[Профиль] как в SCR-ACCOUNT эталона (профиль в боте — заглушка)
         keyboard.append(
             [
                 InlineKeyboardButton(
                     text=texts.t('KELDARI_ACC_BALANCE_BUTTON', 'Баланс'),
                     callback_data='menu_balance',
-                )
+                ),
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ACC_PROFILE_BUTTON', 'Профиль'),
+                    callback_data='keldari_soon:profile',
+                ),
             ]
         )
 
@@ -2241,10 +2290,41 @@ def get_autopay_notification_keyboard(subscription_id: int, language: str = DEFA
 def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = False) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
+    # KELDARI-UI: рефералка по эталону SCR-REF (ВЕРНО VPN). Кнопки фич без бэкенда —
+    # заглушки keldari_soon:*; рабочие инструменты бедолаги (QR/список/аналитика/вывод)
+    # сохранены ниже как «расширение» (в макете их нет).
     keyboard = [
         [
             InlineKeyboardButton(
-                text=texts.t('CREATE_INVITE_BUTTON', '📝 Создать приглашение'), callback_data='referral_create_invite'
+                text=texts.t('KELDARI_REF_INVITE_BUTTON', 'Пригласить друга'),
+                callback_data='referral_create_invite',
+                style='primary',
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_REF_STORIES_BUTTON', '✨ 7 дней за сторис ✨'),
+                callback_data='keldari_soon:stories',
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_REF_POST_BUTTON', '✨ 7 дней за пост ✨'),
+                callback_data='keldari_soon:post',
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_REF_CREATE_VPN_BUTTON', '🤖 Создать свой VPN'),
+                callback_data='keldari_soon:create_vpn',
+                style='primary',
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_REF_TIKTOK_BUTTON', '🔥 Платим за TikTok'),
+                callback_data='keldari_soon:tiktok',
+                style='primary',
             )
         ],
         [InlineKeyboardButton(text=texts.t('SHOW_QR_BUTTON', '📱 Показать QR код'), callback_data='referral_show_qr')],
