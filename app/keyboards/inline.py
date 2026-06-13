@@ -97,7 +97,7 @@ async def get_main_menu_keyboard_async(
     rows.append(
         [
             InlineKeyboardButton(
-                text=texts.t('KELDARI_MAIN_MENU_ACCOUNT_BUTTON', 'Управление подпиской'),
+                text=texts.t('KELDARI_MAIN_MENU_ACCOUNT_BUTTON', 'Подписка'),
                 callback_data='menu_subscription',
             )
         ]
@@ -1205,6 +1205,10 @@ def get_subscription_keyboard(
         if happ_row:
             keyboard.append(happ_row)
 
+        # KELDARI-UI: Variant B (Фаза 3) — на главном экране только основные действия:
+        # [Подключиться]/[Продлить или Купить]/[🎁 Подарить]/[⚙️ Управление ▸]/[Баланс]+[Профиль].
+        # Вторичное (Сменить тариф/Устройства/Сбросить ключ) уехало в подменю «Управление»
+        # (get_subscription_manage_keyboard, callback keldari_manage).
         if is_trial:
             keyboard.append(
                 [InlineKeyboardButton(text=texts.MENU_BUY_SUBSCRIPTION, callback_data='subscription_upgrade')]
@@ -1235,8 +1239,6 @@ def get_subscription_keyboard(
                     [InlineKeyboardButton(text=pause_text, callback_data='toggle_daily_subscription_pause')]
                 )
             else:
-                # KELDARI-UI: порядок рядов как SCR-ACCOUNT B эталона —
-                # [Продлить](primary) / [Сменить тариф] / [Настройки] / ... / [Автоплатеж] ниже
                 keyboard.append(
                     [
                         InlineKeyboardButton(
@@ -1247,31 +1249,6 @@ def get_subscription_keyboard(
                     ]
                 )
 
-            # KELDARI-UI: [Сменить тариф] отдельным рядом (если режим тарифов)
-            if settings.is_tariffs_mode() and subscription:
-                # Для суточных тарифов переходим на список тарифов, для обычных - мгновенное переключение
-                tariff_callback = 'tariff_switch' if is_daily_tariff else 'instant_switch'
-                keyboard.append(
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('CHANGE_TARIFF_BUTTON', '📦 Тариф'), callback_data=tariff_callback
-                        )
-                    ]
-                )
-
-            # KELDARI-UI: убраны лишние кнопки Бедолаги (Настройки/Докупить трафик/Автоплатёж).
-            # Оставляем только экраны клона; старый подраздел subscription_settings
-            # перенаправлен на наш экран аккаунта (см. app/handlers/keldari_profile.py).
-
-        # KELDARI-UI: [Устройства] (прямой доступ) — как в SCR-ACCOUNT эталона
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('KELDARI_ACC_DEVICES_BUTTON', 'Устройства'),
-                    callback_data='subscription_manage_devices',
-                )
-            ]
-        )
         # KELDARI-UI: [🎁 Подарить] — флоу подарка (GuestPurchase-ссылка, оплата с баланса)
         keyboard.append(
             [
@@ -1281,18 +1258,16 @@ def get_subscription_keyboard(
                 )
             ]
         )
-        # KELDARI-UI: [🔄 Сбросить ключ](danger) — под «Мои подарки», чтобы не нажать случайно
-        if settings.is_subscription_revoke_enabled():
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('KELDARI_ACC_KEY_RESET_BUTTON', '🔄 Сбросить ключ'),
-                        callback_data='subscription_revoke',
-                        style='danger',
-                    )
-                ]
-            )
-        # KELDARI-UI: ряд [Баланс]+[Профиль] как в SCR-ACCOUNT эталона (профиль в боте — заглушка)
+        # KELDARI-UI: [⚙️ Управление ▸] — подменю со вторичными действиями
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ACC_MANAGE_BUTTON', '⚙️ Управление ▸'),
+                    callback_data='keldari_manage',
+                )
+            ]
+        )
+        # KELDARI-UI: ряд [Баланс]+[Профиль] как в SCR-ACCOUNT эталона
         keyboard.append(
             [
                 InlineKeyboardButton(
@@ -1307,6 +1282,63 @@ def get_subscription_keyboard(
         )
 
     keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+
+def get_subscription_manage_keyboard(
+    language: str = DEFAULT_LANGUAGE, is_trial: bool = False, subscription=None
+) -> InlineKeyboardMarkup:
+    """KELDARI-UI: подменю «⚙️ Управление» (Variant B, Фаза 3).
+
+    Вторичные действия над подпиской, убранные с главного экрана аккаунта:
+    [📦 Сменить тариф] (режим тарифов, не триал) / [📱 Устройства] / [🔄 Сбросить ключ](danger).
+    Назад → menu_subscription (полный экран аккаунта).
+    """
+    from app.config import settings
+
+    texts = get_texts(language)
+    keyboard: list[list[InlineKeyboardButton]] = []
+
+    tariff = getattr(subscription, 'tariff', None) if subscription else None
+    is_daily_tariff = bool(tariff and getattr(tariff, 'is_daily', False))
+
+    # [Сменить тариф] — только в режиме тарифов и не для триала
+    if settings.is_tariffs_mode() and subscription and not is_trial:
+        tariff_callback = 'tariff_switch' if is_daily_tariff else 'instant_switch'
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CHANGE_TARIFF_BUTTON', '📦 Сменить тариф'),
+                    callback_data=tariff_callback,
+                )
+            ]
+        )
+
+    # [Устройства]
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                text=texts.t('KELDARI_ACC_DEVICES_BUTTON', '📱 Устройства'),
+                callback_data='subscription_manage_devices',
+            )
+        ]
+    )
+
+    # [Сбросить ключ](danger)
+    if settings.is_subscription_revoke_enabled():
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('KELDARI_ACC_KEY_RESET_BUTTON', '🔄 Сбросить ключ'),
+                    callback_data='subscription_revoke',
+                    style='danger',
+                )
+            ]
+        )
+
+    keyboard.append(
+        [InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')]
+    )
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 

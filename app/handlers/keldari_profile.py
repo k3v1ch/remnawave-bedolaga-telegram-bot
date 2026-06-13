@@ -535,6 +535,36 @@ async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: 
     await callback.answer('🔔 Включено' if new_value else '🔕 Выключено')
 
 
+async def show_manage(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    """KELDARI-UI: подменю «⚙️ Управление» (Variant B, Фаза 3).
+
+    Оставляет карточку статуса подписки на месте, подменяет только клавиатуру
+    на вторичные действия (Сменить тариф/Устройства/Сбросить ключ)."""
+    if isinstance(callback.message, types.InaccessibleMessage):
+        await callback.answer()
+        return
+    try:
+        from app.keyboards.inline import get_subscription_manage_keyboard
+
+        await db.refresh(db_user)
+        subscription = db_user.subscription
+        if not subscription:
+            # Нет подписки — просто возвращаем на экран аккаунта
+            from app.handlers.subscription.purchase import show_subscription_info
+
+            await show_subscription_info(callback, db_user, db)
+            return
+        await callback.message.edit_reply_markup(
+            reply_markup=get_subscription_manage_keyboard(
+                db_user.language, is_trial=subscription.is_trial, subscription=subscription
+            )
+        )
+        await callback.answer()
+    except Exception as error:
+        logger.error('keldari_profile: ошибка показа подменю «Управление»', error=str(error))
+        await callback.answer()
+
+
 async def redirect_subscription_settings(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     """KELDARI-UI: старый подраздел «Настройки» Бедолаги (subscription_settings) → наш экран аккаунта.
     Чтобы «Назад» с экранов устройств/сброса ключа не открывал старый подраздел Бедолаги."""
@@ -549,6 +579,7 @@ async def redirect_subscription_settings(callback: types.CallbackQuery, db_user:
 def register_handlers(dp: Dispatcher):
     # KELDARI-UI: перехват старого подраздела «Настройки» (регистрируется ДО subscription — выигрывает)
     dp.callback_query.register(redirect_subscription_settings, F.data == 'subscription_settings')
+    dp.callback_query.register(show_manage, F.data == 'keldari_manage')
     dp.callback_query.register(show_profile, F.data == 'keldari_profile')
     dp.callback_query.register(cancel_flow, F.data == 'kprofile_cancel')
     dp.callback_query.register(bind_start, F.data == 'kprofile_bind')
