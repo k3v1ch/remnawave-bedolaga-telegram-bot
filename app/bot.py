@@ -65,6 +65,7 @@ from app.handlers.keldari_info import register_handlers as register_keldari_info
 from app.handlers.keldari_stub import register_handlers as register_keldari_stub_handlers  # KELDARI-UI
 from app.handlers.keldari_mock import register_handlers as register_keldari_mock_handlers  # KELDARI-UI
 from app.handlers.keldari_profile import register_handlers as register_keldari_profile_handlers  # KELDARI-UI
+from app.handlers.keldari_gift import register_handlers as register_keldari_gift_handlers  # KELDARI-UI
 from app.handlers.stars_payments import register_stars_handlers
 from app.middlewares.auth import AuthMiddleware
 from app.middlewares.blacklist import BlacklistMiddleware
@@ -179,6 +180,7 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
     register_keldari_stub_handlers(dp)  # KELDARI-UI: заглушки кнопок без бэкенда
     register_keldari_mock_handlers(dp)  # KELDARI-UI: навигируемые экраны-реплики макета
     register_keldari_profile_handlers(dp)  # KELDARI-UI: профиль в боте (email/пароль для сайта)
+    register_keldari_gift_handlers(dp)  # KELDARI-UI: подарки (GuestPurchase-ссылка, оплата с баланса)
     subscription.register_handlers(dp)
     balance.register_balance_handlers(dp)
     promocode.register_handlers(dp)

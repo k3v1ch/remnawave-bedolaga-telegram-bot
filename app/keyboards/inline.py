@@ -1272,12 +1272,12 @@ def get_subscription_keyboard(
                 )
             ]
         )
-        # KELDARI-UI: [Мои подарки] — заглушка (бэкенда дарения пока нет)
+        # KELDARI-UI: [🎁 Подарить] — флоу подарка (GuestPurchase-ссылка, оплата с баланса)
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('KELDARI_ACC_GIFTS_BUTTON', 'Мои подарки'),
-                    callback_data='keldari_soon:gifts',
+                    text=texts.t('KELDARI_ACC_GIFT_BUTTON', '🎁 Подарить'),
+                    callback_data='keldari_gift',
                 )
             ]
         )
