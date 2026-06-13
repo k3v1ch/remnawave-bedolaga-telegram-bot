@@ -535,7 +535,20 @@ async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: 
     await callback.answer('🔔 Включено' if new_value else '🔕 Выключено')
 
 
+async def redirect_subscription_settings(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    """KELDARI-UI: старый подраздел «Настройки» Бедолаги (subscription_settings) → наш экран аккаунта.
+    Чтобы «Назад» с экранов устройств/сброса ключа не открывал старый подраздел Бедолаги."""
+    try:
+        from app.handlers.subscription.purchase import show_subscription_info
+        await show_subscription_info(callback, db_user, db)
+    except Exception as error:
+        logger.error('keldari_profile: ошибка редиректа subscription_settings', error=str(error))
+        await callback.answer()
+
+
 def register_handlers(dp: Dispatcher):
+    # KELDARI-UI: перехват старого подраздела «Настройки» (регистрируется ДО subscription — выигрывает)
+    dp.callback_query.register(redirect_subscription_settings, F.data == 'subscription_settings')
     dp.callback_query.register(show_profile, F.data == 'keldari_profile')
     dp.callback_query.register(cancel_flow, F.data == 'kprofile_cancel')
     dp.callback_query.register(bind_start, F.data == 'kprofile_bind')

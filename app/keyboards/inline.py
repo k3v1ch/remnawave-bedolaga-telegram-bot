@@ -1201,23 +1201,13 @@ def get_subscription_keyboard(
         if keyboard:
             keyboard[0] = [btn.model_copy(update={'style': 'primary'}) for btn in keyboard[0]]
 
-        # KELDARI-UI: SCR-ACCOUNT B — [Скопировать ключ] + [🔄 Сбросить ключ](danger)
+        # KELDARI-UI: SCR-ACCOUNT B — [Скопировать ключ] (сброс ключа перенесён ниже, под «Мои подарки»)
         if subscription_link:
             keyboard.append(
                 [
                     InlineKeyboardButton(
                         text=texts.t('KELDARI_ACC_COPY_KEY_BUTTON', 'Скопировать ключ'),
                         callback_data=f'open_subscription_link{_sub_suffix}',
-                    )
-                ]
-            )
-        if settings.is_subscription_revoke_enabled():
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('KELDARI_ACC_KEY_RESET_BUTTON', '🔄 Сбросить ключ'),
-                        callback_data='subscription_revoke',
-                        style='danger',
                     )
                 ]
             )
@@ -1280,44 +1270,9 @@ def get_subscription_keyboard(
                     ]
                 )
 
-            # Ряд: [Настройки] (устройства и пр.)
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('SUBSCRIPTION_SETTINGS_BUTTON', '⚙️ Настройки'),
-                        callback_data='subscription_settings',
-                    )
-                ]
-            )
-
-            # Кнопка докупки трафика для платных подписок
-            # В режиме тарифов проверяем can_topup_traffic() у тарифа, в классическом - глобальные настройки
-            show_traffic_topup = False
-            if subscription and (subscription.traffic_limit_gb or 0) > 0:
-                if settings.is_tariffs_mode() and tariff:
-                    show_traffic_topup = tariff.can_topup_traffic()
-                elif settings.is_traffic_topup_enabled() and not settings.is_traffic_topup_blocked():
-                    show_traffic_topup = True
-
-            if show_traffic_topup:
-                keyboard.append(
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('BUY_TRAFFIC_BUTTON', '📈 Докупить трафик'), callback_data='buy_traffic'
-                        )
-                    ]
-                )
-
-            # KELDARI-UI: [Автоплатеж] ниже основных действий (функционал сохранён)
-            if not is_daily_tariff:
-                keyboard.append(
-                    [
-                        InlineKeyboardButton(
-                            text=texts.t('AUTOPAY_BUTTON', '💳 Автоплатеж'),
-                            callback_data='subscription_autopay',
-                        )
-                    ]
-                )
+            # KELDARI-UI: убраны лишние кнопки Бедолаги (Настройки/Докупить трафик/Автоплатёж).
+            # Оставляем только экраны клона; старый подраздел subscription_settings
+            # перенаправлен на наш экран аккаунта (см. app/handlers/keldari_profile.py).
 
         # KELDARI-UI: [Устройства] (прямой доступ) — как в SCR-ACCOUNT эталона
         keyboard.append(
@@ -1337,6 +1292,17 @@ def get_subscription_keyboard(
                 )
             ]
         )
+        # KELDARI-UI: [🔄 Сбросить ключ](danger) — под «Мои подарки», чтобы не нажать случайно
+        if settings.is_subscription_revoke_enabled():
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('KELDARI_ACC_KEY_RESET_BUTTON', '🔄 Сбросить ключ'),
+                        callback_data='subscription_revoke',
+                        style='danger',
+                    )
+                ]
+            )
         # KELDARI-UI: ряд [Баланс]+[Профиль] как в SCR-ACCOUNT эталона (профиль в боте — заглушка)
         keyboard.append(
             [
