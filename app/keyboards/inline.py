@@ -2304,26 +2304,26 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
         [
             InlineKeyboardButton(
                 text=texts.t('KELDARI_REF_STORIES_BUTTON', '✨ 7 дней за сторис ✨'),
-                callback_data='keldari_soon:stories',
+                callback_data='kmock_ref_stories',
             )
         ],
         [
             InlineKeyboardButton(
                 text=texts.t('KELDARI_REF_POST_BUTTON', '✨ 7 дней за пост ✨'),
-                callback_data='keldari_soon:post',
+                callback_data='kmock_ref_post',
             )
         ],
         [
             InlineKeyboardButton(
                 text=texts.t('KELDARI_REF_CREATE_VPN_BUTTON', '🤖 Создать свой VPN'),
-                callback_data='keldari_soon:create_vpn',
+                callback_data='kmock_create_vpn',
                 style='primary',
             )
         ],
         [
             InlineKeyboardButton(
                 text=texts.t('KELDARI_REF_TIKTOK_BUTTON', '🔥 Платим за TikTok'),
-                callback_data='keldari_soon:tiktok',
+                callback_data='kmock_tiktok',
                 style='primary',
             )
         ],
