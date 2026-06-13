@@ -3029,6 +3029,15 @@ async def auto_purchase_saved_cart_after_topup(
     # 2. Global cart (backward compat): only add if its subscription_id
     #    is not already covered by a per-subscription cart.
     global_cart = await user_cart_service.get_user_cart(user.id)
+    # KELDARI-UI: «корзина-подарок» → завершаем подарок, а не покупку подписки
+    if global_cart and global_cart.get('type') == 'keldari_gift':
+        try:
+            from app.handlers.keldari_gift import complete_gift_after_topup
+
+            await complete_gift_after_topup(db, user, global_cart, bot=bot)
+        except Exception as _kel_gift_err:
+            logger.error('KELDARI-UI: ошибка завершения подарка после пополнения', error=str(_kel_gift_err))
+        return False
     if global_cart:
         global_sub_id = _safe_int(global_cart.get('subscription_id'))
         if global_sub_id and global_sub_id in seen_subscription_ids:

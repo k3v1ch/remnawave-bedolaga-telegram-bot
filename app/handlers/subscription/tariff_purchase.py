@@ -333,12 +333,23 @@ def get_tariff_insufficient_balance_keyboard(
     tariff_id: int,
     period: int,
     language: str,
+    missing_kopeks: int | None = None,  # KELDARI-UI: префилл дефицита
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру при недостаточном балансе."""
     texts = get_texts(language)
+    # KELDARI-UI: «пополнить ровно дефицит и купить» — после зачисления авто-докупка из корзины
+    if missing_kopeks and missing_kopeks > 0:
+        topup_row = [
+            InlineKeyboardButton(
+                text=f'💳 Пополнить {format_price_kopeks(missing_kopeks)} и купить',
+                callback_data=f'kbal_topup:{missing_kopeks}',
+            )
+        ]
+    else:
+        topup_row = [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')]
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')],
+            topup_row,
             [InlineKeyboardButton(text=texts.BACK, callback_data=f'tariff_select:{tariff_id}')],
         ]
     )
@@ -1372,7 +1383,7 @@ async def select_tariff_period(
             f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
             f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>\n\n'
             f'🛒 <i>Корзина сохранена! После пополнения баланса подписка будет оформлена автоматически.</i>',
-            reply_markup=get_tariff_insufficient_balance_keyboard(tariff_id, period, db_user.language),
+            reply_markup=get_tariff_insufficient_balance_keyboard(tariff_id, period, db_user.language, missing),
             parse_mode='HTML',
         )
 

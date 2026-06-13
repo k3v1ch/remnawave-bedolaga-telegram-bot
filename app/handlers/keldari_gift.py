@@ -29,6 +29,7 @@ from app.database.crud.user import subtract_user_balance
 from app.database.models import GuestPurchase, GuestPurchaseStatus, PaymentMethod, TransactionType, User
 from app.localization.texts import get_texts
 from app.services.guest_purchase_service import GuestPurchaseError, create_purchase
+from app.services.user_cart_service import user_cart_service
 from app.utils.formatting import format_price_kopeks
 from app.utils.photo_message import edit_or_answer_photo
 
@@ -186,10 +187,17 @@ async def confirm(callback: types.CallbackQuery, db_user: User, db: AsyncSession
         rows.append([InlineKeyboardButton(text=f'🎁 Подарить за {format_price_kopeks(price)}', callback_data=f'kgift_confirm:{tariff_id}:{days}', style='success')])
     else:
         deficit = price - balance
+        # KELDARI-UI: сохраняем «корзину-подарок» → после пополнения дефицита подарок
+        # создастся автоматически (хук auto_purchase_saved_cart_after_topup → keldari_gift).
+        await user_cart_service.save_user_cart(
+            db_user.id,
+            {'type': 'keldari_gift', 'tariff_id': tariff_id, 'period_days': days, 'total_price': price, 'return_to_cart': True},
+            ttl=3600,
+        )
         lines.append('')
-        lines.append(f'⚠️ Не хватает <b>{format_price_kopeks(deficit)}</b> на балансе.')
-        # TODO (след. шаг, общий с Фазой 2): сквозное «пополни дефицит и авто-продолжи».
-        rows.append([InlineKeyboardButton(text=f'💳 Пополнить баланс', callback_data='balance_topup')])
+        lines.append(f'⚠️ Не хватает <b>{format_price_kopeks(deficit)}</b>.')
+        lines.append('Пополните — и подарок оформится автоматически.')
+        rows.append([InlineKeyboardButton(text=f'💳 Пополнить {format_price_kopeks(deficit)} и подарить', callback_data=f'kbal_topup:{deficit}', style='primary')])
     rows.append(_back_row(f'kgift_tariff:{tariff_id}'))
     await edit_or_answer_photo(callback=callback, caption='\n'.join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML')
     await callback.answer()
@@ -317,8 +325,75 @@ async def show_gift_link(callback: types.CallbackQuery, db_user: User, db: Async
     await callback.answer()
 
 
+# ─────────────────────────────────────────────────────────────
+# Сквозное «пополни дефицит → продолжи» (общий экран + завершение подарка)
+# ─────────────────────────────────────────────────────────────
+
+async def show_topup_for_amount(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    """Экран оплаты на конкретную сумму (дефицит). После зачисления покупка/подарок
+    завершается автоматически (auto_purchase_saved_cart_after_topup). Общий для подарка и подписки."""
+    from app.keyboards.inline import get_payment_methods_keyboard
+
+    try:
+        kopeks = int((callback.data or '').split(':')[1])
+    except (IndexError, ValueError):
+        await callback.answer()
+        return
+    texts = get_texts(db_user.language)
+    keyboard = get_payment_methods_keyboard(kopeks, db_user.language)
+    rows = [list(row) for row in keyboard.inline_keyboard]
+    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='back_to_menu')])
+    text = (
+        f'💳 <b>Пополнение на {format_price_kopeks(kopeks)}</b>\n\n'
+        'Выберите способ оплаты — после зачисления покупка завершится автоматически.'
+    )
+    await edit_or_answer_photo(callback=callback, caption=text, keyboard=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML')
+    await callback.answer()
+
+
+async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *, bot=None) -> None:
+    """Завершает создание подарка после пополнения (ветка type=='keldari_gift' в
+    auto_purchase_saved_cart_after_topup). Если пополнения не хватило — корзина живёт по TTL."""
+    price = int(cart.get('total_price') or 0)
+    tariff_id = cart.get('tariff_id')
+    days = int(cart.get('period_days') or 0)
+    if not (price and tariff_id and days):
+        await user_cart_service.delete_user_cart(user.id)
+        return
+    if (user.balance_kopeks or 0) < price:
+        logger.info('keldari_gift: пополнения пока не хватает для подарка', user_id=user.id, need=price, have=user.balance_kopeks)
+        return
+    tariff = await get_tariff_by_id(db, int(tariff_id))
+    if not tariff:
+        await user_cart_service.delete_user_cart(user.id)
+        return
+    purchase = await _create_gift_from_balance(db, user, tariff, days, price)
+    await user_cart_service.delete_user_cart(user.id)
+    try:
+        await user_cart_service.clear_topup_intent(user.id)
+    except Exception:
+        pass
+    if not purchase:
+        return
+    link = _gift_link(purchase.token)
+    logger.info('keldari_gift: подарок создан после пополнения', user_id=user.id, purchase_id=purchase.id)
+    if bot and user.telegram_id:
+        text = (
+            '✅ <b>Подарок готов!</b>\n\n'
+            f'Тариф: {html.escape(tariff.name)}\n'
+            f'Срок: {days} дн\n\n'
+            'Перешлите другу эту ссылку — он активирует подписку одним кликом:\n'
+            f'<code>{html.escape(link)}</code>'
+        )
+        try:
+            await bot.send_message(user.telegram_id, text, reply_markup=_gift_ready_keyboard(link), parse_mode='HTML')
+        except Exception as send_error:
+            logger.warning('keldari_gift: не удалось отправить ссылку после пополнения', error=str(send_error))
+
+
 def register_handlers(dp: Dispatcher):
     dp.callback_query.register(show_gift_menu, F.data == 'keldari_gift')
+    dp.callback_query.register(show_topup_for_amount, F.data.startswith('kbal_topup:'))
     dp.callback_query.register(start_create, F.data == 'kgift_create')
     dp.callback_query.register(choose_period, F.data.startswith('kgift_tariff:'))
     dp.callback_query.register(confirm, F.data.startswith('kgift_period:'))
