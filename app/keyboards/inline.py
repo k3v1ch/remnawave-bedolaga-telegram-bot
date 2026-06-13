@@ -1346,7 +1346,7 @@ def get_subscription_keyboard(
                 ),
                 InlineKeyboardButton(
                     text=texts.t('KELDARI_ACC_PROFILE_BUTTON', 'Профиль'),
-                    callback_data='keldari_soon:profile',
+                    callback_data='keldari_profile',
                 ),
             ]
         )
