@@ -1201,17 +1201,6 @@ def get_subscription_keyboard(
         if keyboard:
             keyboard[0] = [btn.model_copy(update={'style': 'primary'}) for btn in keyboard[0]]
 
-        # KELDARI-UI: SCR-ACCOUNT B — [Скопировать ключ] (сброс ключа перенесён ниже, под «Мои подарки»)
-        if subscription_link:
-            keyboard.append(
-                [
-                    InlineKeyboardButton(
-                        text=texts.t('KELDARI_ACC_COPY_KEY_BUTTON', 'Скопировать ключ'),
-                        callback_data=f'open_subscription_link{_sub_suffix}',
-                    )
-                ]
-            )
-
         happ_row = get_happ_download_button_row(texts)
         if happ_row:
             keyboard.append(happ_row)
