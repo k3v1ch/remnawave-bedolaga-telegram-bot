@@ -129,14 +129,23 @@ async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: Async
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text=texts.t('KELDARI_GIFT_CREATE_BUTTON', '🎁 Подарить подписку'), callback_data='kgift_create', style='primary')]
     ]
-    # KELDARI-UI: текстовый список «Ваши подарки» убран (захламлял экран
-    # активированными). Оставляем только кнопки-ссылки ещё НЕ активированных подарков.
+    # KELDARI-UI: подарки-карточки (все статусы). Клик по подарку → экран деталей
+    # (show_gift_card): тариф/срок/цена/когда куплен + кто и когда активировал;
+    # для неактивированных — ссылки и кнопки шаринга.
+    if gifts:
+        lines.append('')
+        lines.append('<b>Подарки:</b>')
     for gift in gifts:
+        tname = gift.tariff.name if gift.tariff else '—'
         if gift.status in _CLAIMABLE:
-            tname = gift.tariff.name if gift.tariff else '—'
-            rows.append(
-                [InlineKeyboardButton(text=f'🔗 Ссылка: {html.escape(tname)} {gift.period_days}дн', callback_data=f'kgift_link:{gift.id}')]
-            )
+            emoji = '🎁'
+        elif gift.status == GuestPurchaseStatus.DELIVERED.value:
+            emoji = '✅'
+        else:
+            emoji = '•'
+        rows.append(
+            [InlineKeyboardButton(text=f'{emoji} {tname} · {gift.period_days} дн', callback_data=f'kgift_card:{gift.id}')]
+        )
 
     rows.append(_back_row('menu_subscription'))
     await edit_or_answer_photo(callback=callback, caption='\n'.join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML')
@@ -333,24 +342,51 @@ async def execute_gift(callback: types.CallbackQuery, db_user: User, db: AsyncSe
     await callback.answer('Готово 🎁')
 
 
-async def show_gift_link(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+def _fmt_dt(dt) -> str:
+    return dt.strftime('%d.%m.%Y %H:%M') if dt else '—'
+
+
+async def show_gift_card(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    """Карточка подарка: тариф/срок/устройства/цена/когда куплен + кто и когда
+    активировал. Для НЕактивированных — ссылки активации и кнопки шаринга;
+    для активированных копировать токен нельзя (только детали)."""
     gift_id = int((callback.data or '').split(':')[1])
     result = await db.execute(
         select(GuestPurchase)
-        .options(selectinload(GuestPurchase.tariff))
+        .options(selectinload(GuestPurchase.tariff), selectinload(GuestPurchase.user))
         .where(GuestPurchase.id == gift_id, GuestPurchase.buyer_user_id == db_user.id, GuestPurchase.is_gift.is_(True))
     )
     gift = result.scalars().first()
-    if not gift or gift.status not in _CLAIMABLE:
-        await callback.answer('Ссылка недоступна (подарок уже активирован или не найден)', show_alert=True)
+    if not gift:
+        await callback.answer('Подарок не найден', show_alert=True)
         return
+
     tname = gift.tariff.name if gift.tariff else '—'
-    text = (
-        f'🎁 <b>{html.escape(tname)} · {gift.period_days} дн</b>\n\n'
-        'Ссылки для активации (перешлите другу любую):\n\n'
-        f'{_gift_links_caption(gift.token)}'
-    )
-    await edit_or_answer_photo(callback=callback, caption=text, keyboard=_gift_ready_keyboard(gift.token), parse_mode='HTML')
+    devices = getattr(gift.tariff, 'device_limit', 0) or 0
+    status_label = KELDARI_GIFT_STATUS_LABELS.get(gift.status, gift.status)
+    is_claimable = gift.status in _CLAIMABLE
+    is_delivered = gift.status == GuestPurchaseStatus.DELIVERED.value
+
+    lines = [
+        f'🎁 <b>{html.escape(tname)} · {gift.period_days} дн</b>',
+        '',
+        f'Статус: {status_label}',
+        f'Устройств: до {devices}' if devices else 'Устройств: ∞',
+        f'Стоимость: {format_price_kopeks(gift.amount_kopeks)}',
+        f'Куплен: {_fmt_dt(gift.created_at)}',
+    ]
+    if is_delivered:
+        who = f'@{gift.user.username}' if gift.user and gift.user.username else '—'
+        lines += [f'Активировал: {who}', f'Когда активирован: {_fmt_dt(gift.delivered_at)}']
+
+    if is_claimable:
+        lines += ['', 'Ссылки для активации (перешлите другу любую):', '', _gift_links_caption(gift.token)]
+        keyboard = _gift_ready_keyboard(gift.token)
+    else:
+        # Активированный/иной — копирование недоступно, только назад к списку.
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_row('keldari_gift')])
+
+    await edit_or_answer_photo(callback=callback, caption='\n'.join(lines), keyboard=keyboard, parse_mode='HTML')
     await callback.answer()
 
 
@@ -426,4 +462,4 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(choose_period, F.data.startswith('kgift_tariff:'))
     dp.callback_query.register(confirm, F.data.startswith('kgift_period:'))
     dp.callback_query.register(execute_gift, F.data.startswith('kgift_confirm:'))
-    dp.callback_query.register(show_gift_link, F.data.startswith('kgift_link:'))
+    dp.callback_query.register(show_gift_card, F.data.startswith('kgift_card:'))
