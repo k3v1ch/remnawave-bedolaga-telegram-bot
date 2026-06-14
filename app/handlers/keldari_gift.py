@@ -51,15 +51,26 @@ _CLAIMABLE = (GuestPurchaseStatus.PAID.value, GuestPurchaseStatus.PENDING_ACTIVA
 # Telegram ограничивает start-параметр deep-link'а 64 символами. Токен подарка —
 # 64 символа (token_urlsafe(48)), а с префиксом «GIFT_» это 69 > 64, и Telegram
 # МОЛЧА отбрасывает параметр (бот открывается без него → подарок не активируется).
-# Поэтому в ссылку кладём ПРЕФИКС токена; start.py ищет подарок по startswith
-# (см. _activate_pending_gift_after_registration). 58 символов префикса —
-# уникальность практически абсолютная, а «GIFT_»+58 = 63 ≤ 64.
-_GIFT_LINK_TOKEN_LEN = 58
+# Поэтому в ссылку кладём ПРЕФИКС токена; start.py и публичный site-claim ищут
+# подарок по startswith. 32 символа base64 ≈ 192 бита — коллизии/перебор невозможны,
+# «GIFT_»+32 = 37 ≤ 64. Та же длина используется в кабинете
+# (cabinet/routes/gift.py::_GIFT_SHARE_TOKEN_LEN) — ссылки единообразны.
+_GIFT_LINK_TOKEN_LEN = 32
 
 
 def _gift_link(token: str) -> str:
+    """Telegram deep-link для активации подарка ботом."""
     username = settings.get_bot_username() or 'bot'
     return f'https://t.me/{username}?start=GIFT_{token[:_GIFT_LINK_TOKEN_LEN]}'
+
+
+def _gift_site_link(token: str) -> str | None:
+    """Ссылка на страницу активации на сайте (/buy/gift/<префикс>). None, если
+    CABINET_URL не настроен."""
+    base = (getattr(settings, 'CABINET_URL', '') or '').rstrip('/')
+    if not base:
+        return None
+    return f'{base}/buy/gift/{token[:_GIFT_LINK_TOKEN_LEN]}'
 
 
 def _share_url(link: str) -> str:
@@ -275,13 +286,27 @@ async def _create_gift_from_balance(db: AsyncSession, user: User, tariff, period
         return None
 
 
-def _gift_ready_keyboard(link: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text='📤 Отправить другу', url=_share_url(link))],
-            [InlineKeyboardButton(text='‹ К подаркам', callback_data='keldari_gift')],
-        ]
-    )
+def _gift_links_caption(token: str) -> str:
+    """Текст-блок с обеими ссылками активации подарка: Telegram + сайт."""
+    tg = _gift_link(token)
+    site = _gift_site_link(token)
+    lines = ['🔗 <b>Telegram:</b>', f'<code>{html.escape(tg)}</code>']
+    if site:
+        lines += ['', '🌐 <b>Сайт:</b>', f'<code>{html.escape(site)}</code>']
+    return '\n'.join(lines)
+
+
+def _gift_ready_keyboard(token: str) -> InlineKeyboardMarkup:
+    """Кнопки шаринга подарка: переслать в Telegram и/или поделиться ссылкой на сайт."""
+    tg = _gift_link(token)
+    site = _gift_site_link(token)
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text='📤 Переслать в Telegram', url=_share_url(tg))]
+    ]
+    if site:
+        rows.append([InlineKeyboardButton(text='🌐 Поделиться ссылкой на сайт', url=_share_url(site))])
+    rows.append([InlineKeyboardButton(text='‹ К подаркам', callback_data='keldari_gift')])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def execute_gift(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
@@ -300,15 +325,14 @@ async def execute_gift(callback: types.CallbackQuery, db_user: User, db: AsyncSe
     if not purchase:
         await callback.answer('Не удалось создать подарок. Попробуйте позже.', show_alert=True)
         return
-    link = _gift_link(purchase.token)
     text = (
         '✅ <b>Подарок готов!</b>\n\n'
         f'Тариф: {html.escape(tariff.name)}\n'
         f'Срок: {days} дн\n\n'
-        'Перешлите другу эту ссылку — он активирует подписку одним кликом, без промокодов:\n'
-        f'<code>{html.escape(link)}</code>'
+        'Перешлите другу любую из ссылок — он активирует подписку одним кликом, без промокодов:\n\n'
+        f'{_gift_links_caption(purchase.token)}'
     )
-    await edit_or_answer_photo(callback=callback, caption=text, keyboard=_gift_ready_keyboard(link), parse_mode='HTML')
+    await edit_or_answer_photo(callback=callback, caption=text, keyboard=_gift_ready_keyboard(purchase.token), parse_mode='HTML')
     await callback.answer('Готово 🎁')
 
 
@@ -323,14 +347,13 @@ async def show_gift_link(callback: types.CallbackQuery, db_user: User, db: Async
     if not gift or gift.status not in _CLAIMABLE:
         await callback.answer('Ссылка недоступна (подарок уже активирован или не найден)', show_alert=True)
         return
-    link = _gift_link(gift.token)
     tname = gift.tariff.name if gift.tariff else '—'
     text = (
         f'🎁 <b>{html.escape(tname)} · {gift.period_days} дн</b>\n\n'
-        'Ссылка для активации (перешлите другу):\n'
-        f'<code>{html.escape(link)}</code>'
+        'Ссылки для активации (перешлите другу любую):\n\n'
+        f'{_gift_links_caption(gift.token)}'
     )
-    await edit_or_answer_photo(callback=callback, caption=text, keyboard=_gift_ready_keyboard(link), parse_mode='HTML')
+    await edit_or_answer_photo(callback=callback, caption=text, keyboard=_gift_ready_keyboard(gift.token), parse_mode='HTML')
     await callback.answer()
 
 
@@ -384,18 +407,17 @@ async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *,
         pass
     if not purchase:
         return
-    link = _gift_link(purchase.token)
     logger.info('keldari_gift: подарок создан после пополнения', user_id=user.id, purchase_id=purchase.id)
     if bot and user.telegram_id:
         text = (
             '✅ <b>Подарок готов!</b>\n\n'
             f'Тариф: {html.escape(tariff.name)}\n'
             f'Срок: {days} дн\n\n'
-            'Перешлите другу эту ссылку — он активирует подписку одним кликом:\n'
-            f'<code>{html.escape(link)}</code>'
+            'Перешлите другу любую из ссылок — он активирует подписку одним кликом:\n\n'
+            f'{_gift_links_caption(purchase.token)}'
         )
         try:
-            await bot.send_message(user.telegram_id, text, reply_markup=_gift_ready_keyboard(link), parse_mode='HTML')
+            await bot.send_message(user.telegram_id, text, reply_markup=_gift_ready_keyboard(purchase.token), parse_mode='HTML')
         except Exception as send_error:
             logger.warning('keldari_gift: не удалось отправить ссылку после пополнения', error=str(send_error))
 

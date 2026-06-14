@@ -56,6 +56,13 @@ router = APIRouter(prefix='/gift', tags=['Cabinet Gift'])
 
 GIFT_ENABLED_KEY = 'CABINET_GIFT_ENABLED'
 
+# KELDARI-UI: длина префикса токена, отдаваемого владельцу для шаринг-ссылок
+# (Telegram deep-link `GIFT_<token>` и сайт `/buy/gift/<token>`). 32 base64-символа
+# ≈ 192 бита — перебор/коллизии невозможны, а `GIFT_`+32 = 37 ≤ 64 (лимит Telegram).
+# Публичный claim ищет подарок по этому префиксу через startswith (см. landing.py).
+# Отображаемый «код» подарка на фронте всё равно режется до 12 символов.
+_GIFT_SHARE_TOKEN_LEN = 32
+
 _EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 _TELEGRAM_RE = re.compile(r'^@?[a-zA-Z][a-zA-Z0-9_]{4,31}$')
 
@@ -376,7 +383,7 @@ async def create_gift_purchase(
 
         # Build return URL for after payment
         cabinet_base = (settings.CABINET_URL or '').rstrip('/')
-        return_url = f'{cabinet_base}/gift/result?token={purchase.token[:12]}'
+        return_url = f'{cabinet_base}/gift/result?token={purchase.token[:_GIFT_SHARE_TOKEN_LEN]}'
 
         from app.services.payment_service import PaymentService
 
@@ -432,7 +439,7 @@ async def create_gift_purchase(
 
         return GiftPurchaseResponse(
             status='created',
-            purchase_token=purchase.token[:12],
+            purchase_token=purchase.token[:_GIFT_SHARE_TOKEN_LEN],
             payment_url=payment_url,
             warning=recipient_warning,
         )
@@ -543,7 +550,7 @@ async def create_gift_purchase(
 
     return GiftPurchaseResponse(
         status='ok',
-        purchase_token=purchase_token[:12],
+        purchase_token=purchase_token[:_GIFT_SHARE_TOKEN_LEN],
         warning=recipient_warning,
     )
 
@@ -635,7 +642,7 @@ async def get_gift_purchase_status(
         is_gift=True,
         is_code_only=is_code_only,
         is_claimable=is_claimable,
-        purchase_token=purchase.token[:12] if is_claimable else None,
+        purchase_token=purchase.token[:_GIFT_SHARE_TOKEN_LEN] if is_claimable else None,
         recipient_contact_value=recipient_contact_value,
         gift_message=purchase.gift_message,
         tariff_name=tariff_name,
@@ -670,7 +677,7 @@ async def get_sent_gifts(
 
         sent.append(
             SentGiftResponse(
-                token=p.token[:12],
+                token=p.token[:_GIFT_SHARE_TOKEN_LEN],
                 tariff_name=p.tariff.name if p.tariff else None,
                 period_days=p.period_days,
                 device_limit=p.tariff.device_limit if p.tariff else 1,

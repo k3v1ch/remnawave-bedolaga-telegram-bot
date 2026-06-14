@@ -516,6 +516,28 @@ async def activate_purchase(
     return _build_purchase_status_response(purchase)
 
 
+# KELDARI-UI: владелец делится коротким префиксом токена (32 симв., см.
+# cabinet/routes/gift.py::_GIFT_SHARE_TOKEN_LEN). Поэтому публичный gift-claim ищет
+# подарок по префиксу (startswith, как бот в start.py), а не строго по полному 64-симв.
+# токену. Минимум 16 символов отсекает абсурдно короткие попытки перебора.
+_GIFT_CLAIM_MIN_TOKEN_LEN = 16
+
+
+async def _find_gift_by_token_prefix(
+    db: AsyncSession, token: str, *, for_update: bool = False
+) -> 'GuestPurchase | None':
+    """Find a gift by full token (>=64) or by share-prefix (startswith)."""
+    if len(token) >= 64:
+        token_filter = GuestPurchase.token == token
+    else:
+        token_filter = GuestPurchase.token.startswith(token)
+    stmt = select(GuestPurchase).where(token_filter)
+    if for_update:
+        stmt = stmt.with_for_update()
+    result = await db.execute(stmt)
+    return result.scalars().first()
+
+
 @router.get('/gift/{token}', response_model=PurchaseStatusResponse)
 async def get_gift_claim(
     token: str,
@@ -532,7 +554,10 @@ async def get_gift_claim(
     if await RateLimitCache.is_ip_rate_limited(client_ip, 'gift_claim_status', limit=30, window=60, fail_closed=True):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many requests')
 
-    purchase = await get_purchase_by_token(db, token)
+    if len(token) < _GIFT_CLAIM_MIN_TOKEN_LEN:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift not found')
+
+    purchase = await _find_gift_by_token_prefix(db, token)
     if purchase is None or not purchase.is_gift:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift not found')
 
@@ -558,15 +583,14 @@ async def claim_gift(
     if await RateLimitCache.is_ip_rate_limited(client_ip, 'gift_claim', limit=5, window=60, fail_closed=True):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many requests')
 
-    # Public endpoint: require the full 64-char token (no short-prefix matching,
-    # which is reserved for the human-typed cabinet code path) to rule out
-    # prefix collisions / enumeration.
-    if len(token) < 64:
+    # KELDARI-UI: принимаем короткий share-префикс токена (32 симв.), которым делится
+    # владелец. Минимум 16 символов (≈96 бит) исключает перебор/коллизии; полный
+    # 64-симв. токен по-прежнему матчится точно (см. _find_gift_by_token_prefix).
+    if len(token) < _GIFT_CLAIM_MIN_TOKEN_LEN:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift not found')
 
     # Lock the row so concurrent claims serialize (exactly one binds).
-    result = await db.execute(select(GuestPurchase).where(GuestPurchase.token == token).with_for_update())
-    purchase = result.scalars().first()
+    purchase = await _find_gift_by_token_prefix(db, token, for_update=True)
     if purchase is None or not purchase.is_gift:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift not found')
 
