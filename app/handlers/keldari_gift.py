@@ -110,16 +110,33 @@ def _back_row(callback_data: str, text: str = '‹ Назад') -> list[InlineKe
 # Экран «Подарки» (вход) — список своих + CTA создать
 # ─────────────────────────────────────────────────────────────
 
+_GIFTS_PER_PAGE = 5
+
+
 async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     texts = get_texts(db_user.language)
+
+    # KELDARI-UI: пагинация — со страницы 0 (callback keldari_gift) или kgift_page:{n}
+    page = 0
+    data = callback.data or ''
+    if data.startswith('kgift_page:'):
+        try:
+            page = max(0, int(data.split(':')[1]))
+        except (IndexError, ValueError):
+            page = 0
+
     result = await db.execute(
         select(GuestPurchase)
         .options(selectinload(GuestPurchase.tariff))
         .where(GuestPurchase.buyer_user_id == db_user.id, GuestPurchase.is_gift.is_(True))
         .order_by(desc(GuestPurchase.created_at))
-        .limit(10)
+        .limit(60)
     )
     gifts = result.scalars().all()
+    total = len(gifts)
+    pages = max(1, (total + _GIFTS_PER_PAGE - 1) // _GIFTS_PER_PAGE)
+    page = min(page, pages - 1)
+    page_gifts = gifts[page * _GIFTS_PER_PAGE : page * _GIFTS_PER_PAGE + _GIFTS_PER_PAGE]
 
     lines = [
         '🎁 <b>Подарки</b>',
@@ -130,12 +147,11 @@ async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: Async
         [InlineKeyboardButton(text=texts.t('KELDARI_GIFT_CREATE_BUTTON', '🎁 Подарить подписку'), callback_data='kgift_create', style='primary')]
     ]
     # KELDARI-UI: подарки-карточки (все статусы). Клик по подарку → экран деталей
-    # (show_gift_card): тариф/срок/цена/когда куплен + кто и когда активировал;
-    # для неактивированных — ссылки и кнопки шаринга.
+    # (show_gift_card): тариф/срок/цена/когда куплен + кто и когда активировал.
     if gifts:
         lines.append('')
-        lines.append('<b>Подарки:</b>')
-    for gift in gifts:
+        lines.append(f'<b>Подарки:</b> ({total})')
+    for gift in page_gifts:
         tname = gift.tariff.name if gift.tariff else '—'
         if gift.status in _CLAIMABLE:
             emoji = '🎁'
@@ -146,6 +162,16 @@ async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: Async
         rows.append(
             [InlineKeyboardButton(text=f'{emoji} {tname} · {gift.period_days} дн', callback_data=f'kgift_card:{gift.id}')]
         )
+
+    # KELDARI-UI: листалка, если подарков больше одной страницы (> 5)
+    if pages > 1:
+        nav: list[InlineKeyboardButton] = []
+        if page > 0:
+            nav.append(InlineKeyboardButton(text='‹ Назад', callback_data=f'kgift_page:{page - 1}'))
+        nav.append(InlineKeyboardButton(text=f'{page + 1}/{pages}', callback_data=f'kgift_page:{page}'))
+        if page < pages - 1:
+            nav.append(InlineKeyboardButton(text='Вперёд ›', callback_data=f'kgift_page:{page + 1}'))
+        rows.append(nav)
 
     rows.append(_back_row('menu_subscription'))
     await edit_or_answer_photo(callback=callback, caption='\n'.join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML')
@@ -457,6 +483,7 @@ async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *,
 
 def register_handlers(dp: Dispatcher):
     dp.callback_query.register(show_gift_menu, F.data == 'keldari_gift')
+    dp.callback_query.register(show_gift_menu, F.data.startswith('kgift_page:'))
     dp.callback_query.register(show_topup_for_amount, F.data.startswith('kbal_topup:'))
     dp.callback_query.register(start_create, F.data == 'kgift_create')
     dp.callback_query.register(choose_period, F.data.startswith('kgift_tariff:'))
