@@ -781,6 +781,17 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             await state.update_data(pending_gift_token=gift_token)
             start_parameter = None  # Don't treat as campaign or referral
 
+            # KELDARI-UI fix: для УЖЕ зарегистрированного пользователя пост-регистрационная
+            # активация не сработает (он давно прошёл регистрацию) — активируем подарок
+            # прямо здесь, затем проваливаемся в обычный показ главного меню.
+            existing_gift_user = db_user or await get_user_by_telegram_id(db, message.from_user.id)
+            if existing_gift_user and existing_gift_user.status != UserStatus.DELETED.value:
+                await _activate_pending_gift_after_registration(
+                    db, state, existing_gift_user, message.answer
+                )
+                await state.update_data(pending_gift_token=None)
+                await db.commit()
+
     # Handle web auth deep links: /start webauth_{token}
     if start_parameter and start_parameter.startswith('webauth_'):
         web_auth_token = start_parameter.removeprefix('webauth_')

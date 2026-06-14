@@ -48,9 +48,18 @@ KELDARI_GIFT_STATUS_LABELS = {
 _CLAIMABLE = (GuestPurchaseStatus.PAID.value, GuestPurchaseStatus.PENDING_ACTIVATION.value)
 
 
+# Telegram ограничивает start-параметр deep-link'а 64 символами. Токен подарка —
+# 64 символа (token_urlsafe(48)), а с префиксом «GIFT_» это 69 > 64, и Telegram
+# МОЛЧА отбрасывает параметр (бот открывается без него → подарок не активируется).
+# Поэтому в ссылку кладём ПРЕФИКС токена; start.py ищет подарок по startswith
+# (см. _activate_pending_gift_after_registration). 58 символов префикса —
+# уникальность практически абсолютная, а «GIFT_»+58 = 63 ≤ 64.
+_GIFT_LINK_TOKEN_LEN = 58
+
+
 def _gift_link(token: str) -> str:
     username = settings.get_bot_username() or 'bot'
-    return f'https://t.me/{username}?start=GIFT_{token}'
+    return f'https://t.me/{username}?start=GIFT_{token[:_GIFT_LINK_TOKEN_LEN]}'
 
 
 def _share_url(link: str) -> str:
