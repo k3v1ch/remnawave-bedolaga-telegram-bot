@@ -129,17 +129,14 @@ async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: Async
     rows: list[list[InlineKeyboardButton]] = [
         [InlineKeyboardButton(text=texts.t('KELDARI_GIFT_CREATE_BUTTON', '🎁 Подарить подписку'), callback_data='kgift_create', style='primary')]
     ]
-    if gifts:
-        lines.append('')
-        lines.append('<b>Ваши подарки:</b>')
-        for gift in gifts:
+    # KELDARI-UI: текстовый список «Ваши подарки» убран (захламлял экран
+    # активированными). Оставляем только кнопки-ссылки ещё НЕ активированных подарков.
+    for gift in gifts:
+        if gift.status in _CLAIMABLE:
             tname = gift.tariff.name if gift.tariff else '—'
-            status = KELDARI_GIFT_STATUS_LABELS.get(gift.status, gift.status)
-            lines.append(f'• {html.escape(tname)}, {gift.period_days} дн — {status}')
-            if gift.status in _CLAIMABLE:
-                rows.append(
-                    [InlineKeyboardButton(text=f'🔗 Ссылка: {html.escape(tname)} {gift.period_days}дн', callback_data=f'kgift_link:{gift.id}')]
-                )
+            rows.append(
+                [InlineKeyboardButton(text=f'🔗 Ссылка: {html.escape(tname)} {gift.period_days}дн', callback_data=f'kgift_link:{gift.id}')]
+            )
 
     rows.append(_back_row('menu_subscription'))
     await edit_or_answer_photo(callback=callback, caption='\n'.join(lines), keyboard=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML')

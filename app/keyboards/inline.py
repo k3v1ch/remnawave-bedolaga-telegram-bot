@@ -1253,7 +1253,7 @@ def get_subscription_keyboard(
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('KELDARI_ACC_GIFT_BUTTON', '🎁 Подарить'),
+                    text=texts.t('KELDARI_ACC_GIFT_BUTTON', '🎁 Подарки'),
                     callback_data='keldari_gift',
                 )
             ]
