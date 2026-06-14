@@ -682,10 +682,12 @@ async def get_sent_gifts(
                 period_days=p.period_days,
                 device_limit=p.tariff.device_limit if p.tariff else 1,
                 status=p.status,
+                amount_kopeks=p.amount_kopeks,
                 gift_recipient_value=p.gift_recipient_value,
                 gift_message=p.gift_message,
                 activated_by_username=activated_by_username,
                 created_at=p.created_at,
+                activated_at=p.delivered_at,
             )
         )
 

@@ -103,10 +103,12 @@ class SentGiftResponse(BaseModel):
     period_days: int
     device_limit: int = 1
     status: str
+    amount_kopeks: int = 0
     gift_recipient_value: str | None = None
     gift_message: str | None = None
     activated_by_username: str | None = None
     created_at: datetime | None = None
+    activated_at: datetime | None = None
 
 
 class ReceivedGiftResponse(BaseModel):
