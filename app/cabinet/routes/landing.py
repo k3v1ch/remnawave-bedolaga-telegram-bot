@@ -516,7 +516,7 @@ async def activate_purchase(
     return _build_purchase_status_response(purchase)
 
 
-# KELDARI-UI: владелец делится коротким префиксом токена (32 симв., см.
+# CUSTOM-UI: владелец делится коротким префиксом токена (32 симв., см.
 # cabinet/routes/gift.py::_GIFT_SHARE_TOKEN_LEN). Поэтому публичный gift-claim ищет
 # подарок по префиксу (startswith, как бот в start.py), а не строго по полному 64-симв.
 # токену. Минимум 16 символов отсекает абсурдно короткие попытки перебора.
@@ -583,7 +583,7 @@ async def claim_gift(
     if await RateLimitCache.is_ip_rate_limited(client_ip, 'gift_claim', limit=5, window=60, fail_closed=True):
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many requests')
 
-    # KELDARI-UI: принимаем короткий share-префикс токена (32 симв.), которым делится
+    # CUSTOM-UI: принимаем короткий share-префикс токена (32 симв.), которым делится
     # владелец. Минимум 16 символов (≈96 бит) исключает перебор/коллизии; полный
     # 64-симв. токен по-прежнему матчится точно (см. _find_gift_by_token_prefix).
     if len(token) < _GIFT_CLAIM_MIN_TOKEN_LEN:
@@ -649,7 +649,7 @@ async def claim_gift_authenticated(
 ):
     """Authenticated arm of the gift claim — binds the gift to the logged-in account.
 
-    KELDARI-UI: получатель сначала входит или регистрируется (подтверждая владение
+    CUSTOM-UI: получатель сначала входит или регистрируется (подтверждая владение
     почтой), и только потом подарок привязывается к его аккаунту. В отличие от
     анонимного ``claim_gift`` здесь не создаётся «молчаливый» passwordless-аккаунт
     из одного e-mail — личность уже подтверждена JWT.

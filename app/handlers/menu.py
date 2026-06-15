@@ -1213,16 +1213,16 @@ async def _get_multi_tariff_status(user, texts, db: AsyncSession) -> tuple[str, 
 async def get_main_menu_text(user, texts, db: AsyncSession):
     from app.config import settings
 
-    # KELDARI-UI: A/B/C-тексты главного меню эталона; при любой ошибке —
+    # CUSTOM-UI: A/B/C-тексты главного меню эталона; при любой ошибке —
     # фоллбэк на стандартное поведение бедолаги ниже.
     try:
-        from app.keldari.menu_text import build_main_menu_text
+        from app.custom.menu_text import build_main_menu_text
 
-        keldari_text = build_main_menu_text(user, texts)
-        if keldari_text:
-            return keldari_text
-    except Exception as keldari_error:
-        logger.debug('KELDARI-UI: не удалось построить текст главного меню', error=keldari_error)
+        custom_text = build_main_menu_text(user, texts)
+        if custom_text:
+            return custom_text
+    except Exception as custom_error:
+        logger.debug('CUSTOM-UI: не удалось построить текст главного меню', error=custom_error)
 
     # Multi-tariff: show summary of all subscriptions
     if settings.is_multi_tariff_enabled():

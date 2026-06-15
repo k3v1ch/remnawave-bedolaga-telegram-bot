@@ -1,4 +1,4 @@
-"""KELDARI-UI: навигируемые экраны-реплики макета ВЕРНО VPN для фич без бэкенда.
+"""CUSTOM-UI: навигируемые экраны-реплики макета ВЕРНО VPN для фич без бэкенда.
 
 Принцип (решение владельца): экраны воспроизводят макет визуально и КЛИКАЮТСЯ
 (реальные переходы между экранами), но НЕ выполняют операций в бэкенде —
@@ -25,7 +25,7 @@ from app.utils.photo_message import edit_or_answer_photo
 logger = structlog.get_logger(__name__)
 
 
-KELDARI_REF_STORIES_SCREEN_DEFAULT = (
+CUSTOM_REF_STORIES_SCREEN_DEFAULT = (
     '🥴 Целая неделя бесплатного VPN за сторис в Telegram\n'
     '\n'
     'Условия:\n'
@@ -38,7 +38,7 @@ KELDARI_REF_STORIES_SCREEN_DEFAULT = (
     '🔗 Ссылка для подписи — {bot_ref_link}'
 )
 
-KELDARI_REF_POST_SCREEN_DEFAULT = (
+CUSTOM_REF_POST_SCREEN_DEFAULT = (
     '🥴 Целая неделя бесплатного VPN за пост в Telegram\n'
     '\n'
     'Условия:\n'
@@ -52,16 +52,16 @@ KELDARI_REF_POST_SCREEN_DEFAULT = (
 )
 
 # Инертные действия — демо-алерты (ничего не шлют в бэкенд)
-KELDARI_DEMO_ALERTS = {
+CUSTOM_DEMO_ALERTS = {
     'bonus': '🔧 Демо-режим: бонус не начисляется (функция в разработке).',
     'image': '🔧 Демо-режим: изображение для публикации пока недоступно.',
     'apply': '🔧 Демо-режим: подача заявки в разработке (ничего не отправлено).',
     'create_bot': '🔧 Демо-режим: создание бота в разработке (ничего не создано).',
 }
-KELDARI_DEMO_ALERT_DEFAULT = '🔧 Демо-режим: действие не выполняется (функция в разработке).'
+CUSTOM_DEMO_ALERT_DEFAULT = '🔧 Демо-режим: действие не выполняется (функция в разработке).'
 
 # Подсказка вместо реальной реф-ссылки (без обращения к бэкенду)
-KELDARI_REF_LINK_HINT = '(ваша ссылка — в разделе «Реферальная программа»)'
+CUSTOM_REF_LINK_HINT = '(ваша ссылка — в разделе «Реферальная программа»)'
 
 
 def _bonus_screen_keyboard(texts) -> InlineKeyboardMarkup:
@@ -70,27 +70,27 @@ def _bonus_screen_keyboard(texts) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=texts.t('KELDARI_REF_GET7_BUTTON', 'Получить 7 дней'),
+                    text=texts.t('CUSTOM_REF_GET7_BUTTON', 'Получить 7 дней'),
                     callback_data='kmock_alert:bonus',
                     style='success',
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=texts.t('KELDARI_REF_DOWNLOAD_IMAGE_BUTTON', 'Скачать изображение'),
+                    text=texts.t('CUSTOM_REF_DOWNLOAD_IMAGE_BUTTON', 'Скачать изображение'),
                     callback_data='kmock_alert:image',
                     style='success',
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=texts.t('KELDARI_REF_SUPPORT_BUTTON', 'Написать в поддержку'),
+                    text=texts.t('CUSTOM_REF_SUPPORT_BUTTON', 'Написать в поддержку'),
                     callback_data='menu_support',
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'),
+                    text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'),
                     callback_data='menu_referrals',
                 )
             ],
@@ -101,7 +101,7 @@ def _bonus_screen_keyboard(texts) -> InlineKeyboardMarkup:
 async def _render_bonus_screen(callback: types.CallbackQuery, db_user: User, key: str, default_text: str):
     texts = get_texts(db_user.language)
     raw = texts.t(key, default_text)
-    text = raw.replace('{bot_ref_link}', KELDARI_REF_LINK_HINT)
+    text = raw.replace('{bot_ref_link}', CUSTOM_REF_LINK_HINT)
     try:
         await edit_or_answer_photo(
             callback=callback,
@@ -111,16 +111,16 @@ async def _render_bonus_screen(callback: types.CallbackQuery, db_user: User, key
         )
         await callback.answer()
     except Exception as error:
-        logger.debug('KELDARI-UI: ошибка рендера mock-экрана', key=key, error=error)
+        logger.debug('CUSTOM-UI: ошибка рендера mock-экрана', key=key, error=error)
         await callback.answer()
 
 
 async def show_ref_stories(callback: types.CallbackQuery, db_user: User):
-    await _render_bonus_screen(callback, db_user, 'KELDARI_REF_STORIES_SCREEN', KELDARI_REF_STORIES_SCREEN_DEFAULT)
+    await _render_bonus_screen(callback, db_user, 'CUSTOM_REF_STORIES_SCREEN', CUSTOM_REF_STORIES_SCREEN_DEFAULT)
 
 
 async def show_ref_post(callback: types.CallbackQuery, db_user: User):
-    await _render_bonus_screen(callback, db_user, 'KELDARI_REF_POST_SCREEN', KELDARI_REF_POST_SCREEN_DEFAULT)
+    await _render_bonus_screen(callback, db_user, 'CUSTOM_REF_POST_SCREEN', CUSTOM_REF_POST_SCREEN_DEFAULT)
 
 
 async def show_demo_alert(callback: types.CallbackQuery, db_user: User):
@@ -129,13 +129,13 @@ async def show_demo_alert(callback: types.CallbackQuery, db_user: User):
         data = callback.data or ''
         key = data.split(':', 1)[1] if ':' in data else ''
         texts = get_texts(db_user.language)
-        default = KELDARI_DEMO_ALERTS.get(key, KELDARI_DEMO_ALERT_DEFAULT)
-        loc_key = f'KELDARI_DEMO_{key.upper()}' if key else 'KELDARI_DEMO_DEFAULT'
+        default = CUSTOM_DEMO_ALERTS.get(key, CUSTOM_DEMO_ALERT_DEFAULT)
+        loc_key = f'CUSTOM_DEMO_{key.upper()}' if key else 'CUSTOM_DEMO_DEFAULT'
         await callback.answer(texts.t(loc_key, default), show_alert=True)
     except Exception as error:
-        logger.debug('KELDARI-UI: ошибка demo-алерта', error=error)
+        logger.debug('CUSTOM-UI: ошибка demo-алерта', error=error)
         try:
-            await callback.answer(KELDARI_DEMO_ALERT_DEFAULT, show_alert=True)
+            await callback.answer(CUSTOM_DEMO_ALERT_DEFAULT, show_alert=True)
         except Exception:
             pass
 
@@ -146,7 +146,7 @@ async def show_demo_alert(callback: types.CallbackQuery, db_user: User):
 # создание бота, white-label-управление) — демо-алерты (kmock_alert:*).
 # ─────────────────────────────────────────────────────────────
 
-KELDARI_TIKTOK_SCREEN_DEFAULT = (
+CUSTOM_TIKTOK_SCREEN_DEFAULT = (
     '🔥 Зарабатывайте на коротких видео!\n'
     '\n'
     'Снимайте ролики, продвигайте ВЕРНО VPN и получайте реальные деньги за просмотры.\n'
@@ -170,7 +170,7 @@ KELDARI_TIKTOK_SCREEN_DEFAULT = (
     '📌 Площадки: TikTok · Instagram Reels · YouTube Shorts'
 )
 
-KELDARI_TIKTOK_RULES_SCREEN_DEFAULT = (
+CUSTOM_TIKTOK_RULES_SCREEN_DEFAULT = (
     '📋 Условия участия\n'
     '\n'
     '✦ Баннер ВЕРНО VPN должен быть виден на протяжении всего видео\n'
@@ -188,7 +188,7 @@ KELDARI_TIKTOK_RULES_SCREEN_DEFAULT = (
     '└ Процент может пересматриваться раз в полгода'
 )
 
-KELDARI_CREATE_VPN_SCREEN_DEFAULT = (
+CUSTOM_CREATE_VPN_SCREEN_DEFAULT = (
     '💸 Создайте своего VPN-бота, монетезируйте свою аудиторию и зарабатывайте с каждой продажи!\n'
     '\n'
     'У Вас есть трафик, канал, чат или комьюнити?\n'
@@ -204,9 +204,9 @@ KELDARI_CREATE_VPN_SCREEN_DEFAULT = (
 def _tiktok_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('KELDARI_TIKTOK_RULES_BUTTON', '📋 Условия и правила'), callback_data='kmock_tiktok_rules')],
-            [InlineKeyboardButton(text=texts.t('KELDARI_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='kmock_alert:apply', style='primary')],
-            [InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_RULES_BUTTON', '📋 Условия и правила'), callback_data='kmock_tiktok_rules')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='kmock_alert:apply', style='primary')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
         ]
     )
 
@@ -214,8 +214,8 @@ def _tiktok_keyboard(texts) -> InlineKeyboardMarkup:
 def _tiktok_rules_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('KELDARI_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='kmock_alert:apply', style='primary')],
-            [InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='kmock_tiktok')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='kmock_alert:apply', style='primary')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='kmock_tiktok')],
         ]
     )
 
@@ -223,8 +223,8 @@ def _tiktok_rules_keyboard(texts) -> InlineKeyboardMarkup:
 def _create_vpn_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('KELDARI_CREATE_VPN_BUTTON', 'Создать своего VPN-бота'), callback_data='kmock_alert:create_bot', style='primary')],
-            [InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_CREATE_VPN_BUTTON', 'Создать своего VPN-бота'), callback_data='kmock_alert:create_bot', style='primary')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
         ]
     )
 
@@ -240,20 +240,20 @@ async def _render_static(callback: types.CallbackQuery, db_user: User, key: str,
         )
         await callback.answer()
     except Exception as error:
-        logger.debug('KELDARI-UI: ошибка рендера mock-экрана', key=key, error=error)
+        logger.debug('CUSTOM-UI: ошибка рендера mock-экрана', key=key, error=error)
         await callback.answer()
 
 
 async def show_tiktok(callback: types.CallbackQuery, db_user: User):
-    await _render_static(callback, db_user, 'KELDARI_TIKTOK_SCREEN', KELDARI_TIKTOK_SCREEN_DEFAULT, _tiktok_keyboard)
+    await _render_static(callback, db_user, 'CUSTOM_TIKTOK_SCREEN', CUSTOM_TIKTOK_SCREEN_DEFAULT, _tiktok_keyboard)
 
 
 async def show_tiktok_rules(callback: types.CallbackQuery, db_user: User):
-    await _render_static(callback, db_user, 'KELDARI_TIKTOK_RULES_SCREEN', KELDARI_TIKTOK_RULES_SCREEN_DEFAULT, _tiktok_rules_keyboard)
+    await _render_static(callback, db_user, 'CUSTOM_TIKTOK_RULES_SCREEN', CUSTOM_TIKTOK_RULES_SCREEN_DEFAULT, _tiktok_rules_keyboard)
 
 
 async def show_create_vpn(callback: types.CallbackQuery, db_user: User):
-    await _render_static(callback, db_user, 'KELDARI_CREATE_VPN_SCREEN', KELDARI_CREATE_VPN_SCREEN_DEFAULT, _create_vpn_keyboard)
+    await _render_static(callback, db_user, 'CUSTOM_CREATE_VPN_SCREEN', CUSTOM_CREATE_VPN_SCREEN_DEFAULT, _create_vpn_keyboard)
 
 
 def register_handlers(dp: Dispatcher):

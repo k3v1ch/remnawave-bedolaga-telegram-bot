@@ -1,4 +1,4 @@
-"""KELDARI-UI: профиль В БОТЕ — привязка/смена email и пароля для входа на сайт.
+"""CUSTOM-UI: профиль В БОТЕ — привязка/смена email и пароля для входа на сайт.
 
 РЕАЛЬНАЯ фича (не заглушка): переиспользует тот же бэкенд, что и веб-кабинет,
 поэтому привязанные email+пароль работают и для входа на сайт.
@@ -61,14 +61,14 @@ MAX_CODE_ATTEMPTS = 3
 # Тумблеры уведомлений (SCR-NOTIFICATIONS). Ключи/дефолты канонические
 # (app.utils.notification_prefs), поэтому переключение РЕАЛЬНО гейтит отправку
 # уведомлений Бедолаги, а не просто сохраняется. Маппинг на 4 пункта макета.
-KELDARI_NOTIF_TOGGLES = (
+CUSTOM_NOTIF_TOGGLES = (
     ('subscription_expiry_enabled', '📅 Истечение подписки'),
     ('balance_low_enabled', '💸 Низкий баланс'),
     ('promo_offers_enabled', '🎁 Бонусы и акции'),
     ('news_enabled', '🤖 Новости'),
 )
-KELDARI_NOTIF_KEYS = frozenset(k for k, _ in KELDARI_NOTIF_TOGGLES)
-KELDARI_NOTIF_SCREEN_DEFAULT = (
+CUSTOM_NOTIF_KEYS = frozenset(k for k, _ in CUSTOM_NOTIF_TOGGLES)
+CUSTOM_NOTIF_SCREEN_DEFAULT = (
     '🔔 Настройки уведомлений\n'
     '\n'
     'Нажмите на пункт, чтобы включить или выключить:'
@@ -127,31 +127,31 @@ async def _send_code(email: str, code: str, username: str | None) -> bool:
     try:
         return await asyncio.to_thread(email_service.send_email_change_code, email, code, username, 'ru')
     except Exception as error:
-        logger.error('keldari_profile: ошибка отправки кода', email=_mask_email(email), error=str(error))
+        logger.error('custom_profile: ошибка отправки кода', email=_mask_email(email), error=str(error))
         return False
 
 
 def _cancel_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_CANCEL_BUTTON', '✖️ Отмена'), callback_data='kprofile_cancel')]]
+        inline_keyboard=[[InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_CANCEL_BUTTON', '✖️ Отмена'), callback_data='kprofile_cancel')]]
     )
 
 
 def _back_to_profile_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='keldari_profile')]]
+        inline_keyboard=[[InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='custom_profile')]]
     )
 
 
 def _profile_keyboard(user: User, texts) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if user.email and user.password_hash:
-        rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_CHANGE_EMAIL_BUTTON', 'Сменить email'), callback_data='kprofile_change_email')])
-        rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_CHANGE_PASSWORD_BUTTON', 'Сменить пароль'), callback_data='kprofile_change_password')])
+        rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_CHANGE_EMAIL_BUTTON', 'Сменить email'), callback_data='kprofile_change_email')])
+        rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_CHANGE_PASSWORD_BUTTON', 'Сменить пароль'), callback_data='kprofile_change_password')])
     else:
-        rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_BIND_BUTTON', 'Добавить email и пароль'), callback_data='kprofile_bind', style='primary')])
-    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_NOTIF_BUTTON', '🔔 Уведомления'), callback_data='kprofile_notifications')])
-    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='menu_subscription')])
+        rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_BIND_BUTTON', 'Добавить email и пароль'), callback_data='kprofile_bind', style='primary')])
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_NOTIF_BUTTON', '🔔 Уведомления'), callback_data='kprofile_notifications')])
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_subscription')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -196,9 +196,9 @@ async def cancel_flow(callback: types.CallbackQuery, db_user: User, db: AsyncSes
     try:
         await clear_email_change_pending(db, db_user)
     except Exception as error:
-        logger.debug('keldari_profile: ошибка очистки pending при отмене', error=str(error))
+        logger.debug('custom_profile: ошибка очистки pending при отмене', error=str(error))
     await state.clear()
-    logger.info('keldari_profile: флоу отменён', user_id=db_user.id)
+    logger.info('custom_profile: флоу отменён', user_id=db_user.id)
     await _show_profile_screen(callback, db_user)
     await callback.answer('Отменено. Ничего не сохранено.')
 
@@ -213,7 +213,7 @@ async def bind_start(callback: types.CallbackQuery, db_user: User, state: FSMCon
         await callback.answer('Email уже привязан.', show_alert=True)
         return
     await state.set_state(BindEmailStates.waiting_email)
-    logger.info('keldari_profile: привязка начата', user_id=db_user.id)
+    logger.info('custom_profile: привязка начата', user_id=db_user.id)
     await callback.message.answer('✍️ Введите email для входа на сайт:', reply_markup=_cancel_keyboard(texts))
     await callback.answer()
 
@@ -226,12 +226,12 @@ async def bind_email(message: types.Message, db_user: User, db: AsyncSession, st
         await message.answer('❌ Некорректный email. Введите ещё раз:', reply_markup=_cancel_keyboard(texts))
         return
     if await is_email_taken(db, email):
-        logger.info('keldari_profile: email занят', user_id=db_user.id, email=_mask_email(email))
+        logger.info('custom_profile: email занят', user_id=db_user.id, email=_mask_email(email))
         await message.answer('❌ Этот email уже используется. Введите другой:', reply_markup=_cancel_keyboard(texts))
         return
     await state.update_data(email=email)
     await state.set_state(BindEmailStates.waiting_password)
-    logger.info('keldari_profile: email принят', user_id=db_user.id, email=_mask_email(email))
+    logger.info('custom_profile: email принят', user_id=db_user.id, email=_mask_email(email))
     await message.answer(f'🔐 Придумайте пароль (минимум {MIN_PASSWORD_LEN} символов):', reply_markup=_cancel_keyboard(texts))
 
 
@@ -251,14 +251,14 @@ async def bind_password(message: types.Message, db_user: User, db: AsyncSession,
     code = generate_email_change_code()
     expires = get_email_change_expires_at()
     if not await _send_code(email, code, db_user.full_name):
-        logger.warning('keldari_profile: не удалось отправить код привязки', user_id=db_user.id, email=_mask_email(email))
+        logger.warning('custom_profile: не удалось отправить код привязки', user_id=db_user.id, email=_mask_email(email))
         await state.clear()
         await message.answer('❌ Не удалось отправить код на почту. Привязка отменена, данные не сохранены.', reply_markup=_back_to_profile_keyboard(texts))
         return
     await state.update_data(password_hash=hash_password(password), code=code, code_expires=expires.isoformat(), attempts=0)
     await state.set_state(BindEmailStates.waiting_code)
-    logger.info('keldari_profile: код привязки отправлен', user_id=db_user.id, email=_mask_email(email))
-    logger.debug('keldari_profile: код привязки (dev)', user_id=db_user.id, code=code)
+    logger.info('custom_profile: код привязки отправлен', user_id=db_user.id, email=_mask_email(email))
+    logger.debug('custom_profile: код привязки (dev)', user_id=db_user.id, code=code)
     await message.answer(f'📨 Код подтверждения отправлен на <code>{html.escape(email)}</code>.\nВведите код из письма:', parse_mode='HTML', reply_markup=_cancel_keyboard(texts))
 
 
@@ -276,14 +276,14 @@ async def bind_code(message: types.Message, db_user: User, db: AsyncSession, sta
         return
     if _expired(data.get('code_expires')):
         await state.clear()
-        logger.info('keldari_profile: код привязки истёк', user_id=db_user.id)
+        logger.info('custom_profile: код привязки истёк', user_id=db_user.id)
         await message.answer('⌛ Код истёк. Привязка отменена, данные не сохранены.', reply_markup=_back_to_profile_keyboard(texts))
         return
     if not hmac.compare_digest(entered, str(code)):
         attempts = int(data.get('attempts', 0)) + 1
         if attempts >= MAX_CODE_ATTEMPTS:
             await state.clear()
-            logger.info('keldari_profile: превышены попытки кода привязки', user_id=db_user.id)
+            logger.info('custom_profile: превышены попытки кода привязки', user_id=db_user.id)
             await message.answer('❌ Слишком много неверных попыток. Привязка отменена, данные не сохранены.', reply_markup=_back_to_profile_keyboard(texts))
             return
         await state.update_data(attempts=attempts)
@@ -303,12 +303,12 @@ async def bind_code(message: types.Message, db_user: User, db: AsyncSession, sta
         await db.refresh(db_user)
     except Exception as error:
         await db.rollback()
-        logger.error('keldari_profile: ошибка сохранения привязки', user_id=db_user.id, error=str(error))
+        logger.error('custom_profile: ошибка сохранения привязки', user_id=db_user.id, error=str(error))
         await state.clear()
         await message.answer('❌ Ошибка сохранения. Данные не сохранены.', reply_markup=_back_to_profile_keyboard(texts))
         return
     await state.clear()
-    logger.info('keldari_profile: привязка завершена', user_id=db_user.id, email=_mask_email(email))
+    logger.info('custom_profile: привязка завершена', user_id=db_user.id, email=_mask_email(email))
     await message.answer(f'✅ Email привязан: <code>{html.escape(email)}</code>\nТеперь вы можете входить в личный кабинет на сайте по email и паролю.', parse_mode='HTML', reply_markup=_back_to_profile_keyboard(texts))
 
 
@@ -324,13 +324,13 @@ async def change_email_start(callback: types.CallbackQuery, db_user: User, db: A
     code = generate_email_change_code()
     expires = get_email_change_expires_at()
     if not await _send_code(db_user.email, code, db_user.full_name):
-        logger.warning('keldari_profile: не удалось отправить код на текущую почту', user_id=db_user.id)
+        logger.warning('custom_profile: не удалось отправить код на текущую почту', user_id=db_user.id)
         await callback.answer('Не удалось отправить код на текущую почту.', show_alert=True)
         return
     await state.set_state(ChangeEmailStates.waiting_current_code)
     await state.update_data(cur_code=code, cur_expires=expires.isoformat(), attempts=0)
-    logger.info('keldari_profile: смена email начата, код на текущую', user_id=db_user.id, email=_mask_email(db_user.email))
-    logger.debug('keldari_profile: код на текущую (dev)', user_id=db_user.id, code=code)
+    logger.info('custom_profile: смена email начата, код на текущую', user_id=db_user.id, email=_mask_email(db_user.email))
+    logger.debug('custom_profile: код на текущую (dev)', user_id=db_user.id, code=code)
     await callback.message.answer(f'📨 Код отправлен на текущую почту <code>{html.escape(db_user.email)}</code>.\nВведите код для подтверждения:', parse_mode='HTML', reply_markup=_cancel_keyboard(texts))
     await callback.answer()
 
@@ -359,7 +359,7 @@ async def change_email_current_code(message: types.Message, db_user: User, db: A
         await message.answer(f'❌ Неверный код. Осталось попыток: {MAX_CODE_ATTEMPTS - attempts}. Введите код:', reply_markup=_cancel_keyboard(texts))
         return
     await state.set_state(ChangeEmailStates.waiting_new_email)
-    logger.info('keldari_profile: текущая почта подтверждена', user_id=db_user.id)
+    logger.info('custom_profile: текущая почта подтверждена', user_id=db_user.id)
     await message.answer('✍️ Введите новый email:', reply_markup=_cancel_keyboard(texts))
 
 
@@ -385,14 +385,14 @@ async def change_email_new(message: types.Message, db_user: User, db: AsyncSessi
     try:
         await set_email_change_pending(db, db_user, new_email, code, expires)
     except Exception as error:
-        logger.error('keldari_profile: ошибка set_email_change_pending', user_id=db_user.id, error=str(error))
+        logger.error('custom_profile: ошибка set_email_change_pending', user_id=db_user.id, error=str(error))
         await state.clear()
         await message.answer('❌ Ошибка. Смена email отменена.', reply_markup=_back_to_profile_keyboard(texts))
         return
     await state.set_state(ChangeEmailStates.waiting_new_code)
     await state.update_data(attempts=0)
-    logger.info('keldari_profile: код на новый email отправлен', user_id=db_user.id, email=_mask_email(new_email))
-    logger.debug('keldari_profile: код на новый (dev)', user_id=db_user.id, code=code)
+    logger.info('custom_profile: код на новый email отправлен', user_id=db_user.id, email=_mask_email(new_email))
+    logger.debug('custom_profile: код на новый (dev)', user_id=db_user.id, code=code)
     await message.answer(f'📨 Код отправлен на <code>{html.escape(new_email)}</code>.\nВведите код для завершения смены:', parse_mode='HTML', reply_markup=_cancel_keyboard(texts))
 
 
@@ -403,7 +403,7 @@ async def change_email_new_code(message: types.Message, db_user: User, db: Async
     ok, reason = await verify_and_apply_email_change(db, db_user, entered)
     if ok:
         await state.clear()
-        logger.info('keldari_profile: email сменён', user_id=db_user.id, email=_mask_email(db_user.email))
+        logger.info('custom_profile: email сменён', user_id=db_user.id, email=_mask_email(db_user.email))
         await message.answer(f'✅ Email изменён на <code>{html.escape(db_user.email or "")}</code>.', parse_mode='HTML', reply_markup=_back_to_profile_keyboard(texts))
         return
     data = await state.get_data()
@@ -414,7 +414,7 @@ async def change_email_new_code(message: types.Message, db_user: User, db: Async
         except Exception:
             pass
         await state.clear()
-        logger.info('keldari_profile: смена email отменена (попытки/ошибка)', user_id=db_user.id, reason=reason)
+        logger.info('custom_profile: смена email отменена (попытки/ошибка)', user_id=db_user.id, reason=reason)
         await message.answer('❌ Не удалось подтвердить. Смена email отменена.', reply_markup=_back_to_profile_keyboard(texts))
         return
     await state.update_data(attempts=attempts)
@@ -432,7 +432,7 @@ async def change_password_start(callback: types.CallbackQuery, db_user: User, st
         return
     await state.set_state(ChangePasswordStates.waiting_old_password)
     await state.update_data(attempts=0)
-    logger.info('keldari_profile: смена пароля начата', user_id=db_user.id)
+    logger.info('custom_profile: смена пароля начата', user_id=db_user.id)
     await callback.message.answer('🔐 Введите текущий пароль:', reply_markup=_cancel_keyboard(texts))
     await callback.answer()
 
@@ -446,14 +446,14 @@ async def change_password_old(message: types.Message, db_user: User, db: AsyncSe
         attempts = int(data.get('attempts', 0)) + 1
         if attempts >= MAX_CODE_ATTEMPTS:
             await state.clear()
-            logger.info('keldari_profile: смена пароля отменена (неверный старый)', user_id=db_user.id)
+            logger.info('custom_profile: смена пароля отменена (неверный старый)', user_id=db_user.id)
             await message.answer('❌ Слишком много неверных попыток. Смена пароля отменена.', reply_markup=_back_to_profile_keyboard(texts))
             return
         await state.update_data(attempts=attempts)
         await message.answer(f'❌ Неверный текущий пароль. Осталось попыток: {MAX_CODE_ATTEMPTS - attempts}. Введите ещё раз:', reply_markup=_cancel_keyboard(texts))
         return
     await state.set_state(ChangePasswordStates.waiting_new_password)
-    logger.info('keldari_profile: текущий пароль подтверждён', user_id=db_user.id)
+    logger.info('custom_profile: текущий пароль подтверждён', user_id=db_user.id)
     await message.answer(f'🔐 Введите новый пароль (минимум {MIN_PASSWORD_LEN} символов):', reply_markup=_cancel_keyboard(texts))
 
 
@@ -470,12 +470,12 @@ async def change_password_new(message: types.Message, db_user: User, db: AsyncSe
         await db.refresh(db_user)
     except Exception as error:
         await db.rollback()
-        logger.error('keldari_profile: ошибка сохранения нового пароля', user_id=db_user.id, error=str(error))
+        logger.error('custom_profile: ошибка сохранения нового пароля', user_id=db_user.id, error=str(error))
         await state.clear()
         await message.answer('❌ Ошибка сохранения. Пароль не изменён.', reply_markup=_back_to_profile_keyboard(texts))
         return
     await state.clear()
-    logger.info('keldari_profile: пароль изменён', user_id=db_user.id)
+    logger.info('custom_profile: пароль изменён', user_id=db_user.id)
     await message.answer('✅ Пароль изменён.', reply_markup=_back_to_profile_keyboard(texts))
 
 
@@ -485,12 +485,12 @@ async def change_password_new(message: types.Message, db_user: User, db: AsyncSe
 
 def _notif_keyboard(user: User, texts) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    for key, label in KELDARI_NOTIF_TOGGLES:
+    for key, label in CUSTOM_NOTIF_TOGGLES:
         on = bool(get_user_notification_pref(user, key))
         rows.append([
             InlineKeyboardButton(text=f'{label}: {"🔔" if on else "🔕"}', callback_data=f'kprofile_notif_toggle:{key}')
         ])
-    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='keldari_profile')])
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='custom_profile')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -499,7 +499,7 @@ async def show_notifications(callback: types.CallbackQuery, db_user: User, state
     texts = get_texts(db_user.language)
     await edit_or_answer_photo(
         callback=callback,
-        caption=texts.t('KELDARI_NOTIF_SCREEN', KELDARI_NOTIF_SCREEN_DEFAULT),
+        caption=texts.t('CUSTOM_NOTIF_SCREEN', CUSTOM_NOTIF_SCREEN_DEFAULT),
         keyboard=_notif_keyboard(db_user, texts),
         parse_mode='HTML',
     )
@@ -510,7 +510,7 @@ async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: 
     texts = get_texts(db_user.language)
     data = callback.data or ''
     key = data.split(':', 1)[1] if ':' in data else ''
-    if key not in KELDARI_NOTIF_KEYS:
+    if key not in CUSTOM_NOTIF_KEYS:
         await callback.answer()
         return
     new_value = not bool(get_user_notification_pref(db_user, key))
@@ -520,15 +520,15 @@ async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: 
         db_user.notification_settings = new_settings  # переприсваиваем dict — фиксируем изменение JSONB
         await db.commit()
         await db.refresh(db_user)
-        logger.info('keldari_profile: тумблер уведомления', user_id=db_user.id, key=key, value=new_value)
+        logger.info('custom_profile: тумблер уведомления', user_id=db_user.id, key=key, value=new_value)
     except Exception as error:
         await db.rollback()
-        logger.error('keldari_profile: ошибка сохранения тумблера', user_id=db_user.id, key=key, error=str(error))
+        logger.error('custom_profile: ошибка сохранения тумблера', user_id=db_user.id, key=key, error=str(error))
         await callback.answer('Ошибка сохранения', show_alert=True)
         return
     await edit_or_answer_photo(
         callback=callback,
-        caption=texts.t('KELDARI_NOTIF_SCREEN', KELDARI_NOTIF_SCREEN_DEFAULT),
+        caption=texts.t('CUSTOM_NOTIF_SCREEN', CUSTOM_NOTIF_SCREEN_DEFAULT),
         keyboard=_notif_keyboard(db_user, texts),
         parse_mode='HTML',
     )
@@ -536,7 +536,7 @@ async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: 
 
 
 async def show_manage(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
-    """KELDARI-UI: подменю «⚙️ Управление» (Variant B, Фаза 3).
+    """CUSTOM-UI: подменю «⚙️ Управление» (Variant B, Фаза 3).
 
     Оставляет карточку статуса подписки на месте, подменяет только клавиатуру
     на вторичные действия (Сменить тариф/Устройства/Сбросить ключ)."""
@@ -561,26 +561,26 @@ async def show_manage(callback: types.CallbackQuery, db_user: User, db: AsyncSes
         )
         await callback.answer()
     except Exception as error:
-        logger.error('keldari_profile: ошибка показа подменю «Управление»', error=str(error))
+        logger.error('custom_profile: ошибка показа подменю «Управление»', error=str(error))
         await callback.answer()
 
 
 async def redirect_subscription_settings(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
-    """KELDARI-UI: старый подраздел «Настройки» Бедолаги (subscription_settings) → наш экран аккаунта.
+    """CUSTOM-UI: старый подраздел «Настройки» Бедолаги (subscription_settings) → наш экран аккаунта.
     Чтобы «Назад» с экранов устройств/сброса ключа не открывал старый подраздел Бедолаги."""
     try:
         from app.handlers.subscription.purchase import show_subscription_info
         await show_subscription_info(callback, db_user, db)
     except Exception as error:
-        logger.error('keldari_profile: ошибка редиректа subscription_settings', error=str(error))
+        logger.error('custom_profile: ошибка редиректа subscription_settings', error=str(error))
         await callback.answer()
 
 
 def register_handlers(dp: Dispatcher):
-    # KELDARI-UI: перехват старого подраздела «Настройки» (регистрируется ДО subscription — выигрывает)
+    # CUSTOM-UI: перехват старого подраздела «Настройки» (регистрируется ДО subscription — выигрывает)
     dp.callback_query.register(redirect_subscription_settings, F.data == 'subscription_settings')
-    dp.callback_query.register(show_manage, F.data == 'keldari_manage')
-    dp.callback_query.register(show_profile, F.data == 'keldari_profile')
+    dp.callback_query.register(show_manage, F.data == 'custom_manage')
+    dp.callback_query.register(show_profile, F.data == 'custom_profile')
     dp.callback_query.register(cancel_flow, F.data == 'kprofile_cancel')
     dp.callback_query.register(bind_start, F.data == 'kprofile_bind')
     dp.callback_query.register(change_email_start, F.data == 'kprofile_change_email')

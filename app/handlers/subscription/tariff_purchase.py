@@ -183,15 +183,15 @@ def get_tariffs_keyboard(
 ) -> InlineKeyboardMarkup:
     """Создает компактную клавиатуру выбора тарифов.
 
-    KELDARI-UI: лейбл кнопки тарифа — шаблон SCR-TARIFF эталона
-    «{name} | {N} устр. | от {price}» (locale-ключ KELDARI_TARIFF_BUTTON_TEMPLATE).
+    CUSTOM-UI: лейбл кнопки тарифа — шаблон SCR-TARIFF эталона
+    «{name} | {N} устр. | от {price}» (locale-ключ CUSTOM_TARIFF_BUTTON_TEMPLATE).
     """
     texts = get_texts(language)
     if purchased_tariff_ids is None:
         purchased_tariff_ids = set()
     buttons = []
 
-    label_template = texts.t('KELDARI_TARIFF_BUTTON_TEMPLATE', '{name} | {devices} устр. | от {price}')
+    label_template = texts.t('CUSTOM_TARIFF_BUTTON_TEMPLATE', '{name} | {devices} устр. | от {price}')
 
     for tariff in tariffs:
         label = tariff.name
@@ -211,7 +211,7 @@ def get_tariffs_keyboard(
                     price=min_price_text,
                 )
         except Exception as label_error:
-            logger.debug('KELDARI-UI: ошибка форматирования лейбла тарифа', error=label_error)
+            logger.debug('CUSTOM-UI: ошибка форматирования лейбла тарифа', error=label_error)
 
         if tariff.id in purchased_tariff_ids:
             label = f'✅ {label}'
@@ -247,8 +247,8 @@ def get_tariff_periods_keyboard(
         else:
             price_text = format_price_kopeks(price)
 
-        # KELDARI-UI: шаблон лейбла периода через locale-ключ
-        button_text = texts.t('KELDARI_TARIFF_PERIOD_BUTTON_TEMPLATE', '{period} — {price}').format(
+        # CUSTOM-UI: шаблон лейбла периода через locale-ключ
+        button_text = texts.t('CUSTOM_TARIFF_PERIOD_BUTTON_TEMPLATE', '{period} — {price}').format(
             period=format_period(period), price=price_text
         )
         buttons.append([InlineKeyboardButton(text=button_text, callback_data=f'tariff_period:{tariff.id}:{period}')])
@@ -283,8 +283,8 @@ def get_tariff_periods_keyboard_with_traffic(
         else:
             price_text = format_price_kopeks(price)
 
-        # KELDARI-UI: шаблон лейбла периода через locale-ключ
-        button_text = texts.t('KELDARI_TARIFF_PERIOD_BUTTON_TEMPLATE', '{period} — {price}').format(
+        # CUSTOM-UI: шаблон лейбла периода через locale-ключ
+        button_text = texts.t('CUSTOM_TARIFF_PERIOD_BUTTON_TEMPLATE', '{period} — {price}').format(
             period=format_period(period), price=price_text
         )
         # Используем другой callback для перехода к настройке трафика
@@ -305,16 +305,16 @@ def get_tariff_confirm_keyboard(
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру подтверждения покупки тарифа.
 
-    KELDARI-UI: при известной сумме — лейбл «Приобрести — {total}» (SCR-CONFIRM,
+    CUSTOM-UI: при известной сумме — лейбл «Приобрести — {total}» (SCR-CONFIRM,
     style=success); без суммы — прежний текст.
     """
     texts = get_texts(language)
     if total_kopeks:
-        confirm_label = texts.t('KELDARI_TARIFF_CONFIRM_BUTTON', 'Приобрести — {total}').format(
+        confirm_label = texts.t('CUSTOM_TARIFF_CONFIRM_BUTTON', 'Приобрести — {total}').format(
             total=format_price_kopeks(total_kopeks, compact=True)
         )
     else:
-        confirm_label = texts.t('KELDARI_TARIFF_CONFIRM_BUTTON_NO_PRICE', '✅ Подтвердить покупку')
+        confirm_label = texts.t('CUSTOM_TARIFF_CONFIRM_BUTTON_NO_PRICE', '✅ Подтвердить покупку')
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -333,11 +333,11 @@ def get_tariff_insufficient_balance_keyboard(
     tariff_id: int,
     period: int,
     language: str,
-    missing_kopeks: int | None = None,  # KELDARI-UI: префилл дефицита
+    missing_kopeks: int | None = None,  # CUSTOM-UI: префилл дефицита
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру при недостаточном балансе."""
     texts = get_texts(language)
-    # KELDARI-UI: «пополнить ровно дефицит и купить» — после зачисления авто-докупка из корзины
+    # CUSTOM-UI: «пополнить ровно дефицит и купить» — после зачисления авто-докупка из корзины
     if missing_kopeks and missing_kopeks > 0:
         topup_row = [
             InlineKeyboardButton(
@@ -1341,7 +1341,7 @@ async def select_tariff_period(
             f'💰 <b>Итого: {format_price_kopeks(final_price)}</b>\n\n'
             f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
             f'После оплаты: {format_price_kopeks(user_balance - final_price)}',
-            reply_markup=get_tariff_confirm_keyboard(tariff_id, period, db_user.language, final_price),  # KELDARI-UI
+            reply_markup=get_tariff_confirm_keyboard(tariff_id, period, db_user.language, final_price),  # CUSTOM-UI
             parse_mode='HTML',
         )
     else:
@@ -4600,7 +4600,7 @@ async def return_to_saved_tariff_cart(
             f'💰 <b>Итого: {format_price_kopeks(total_price)}</b>\n\n'
             f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
             f'После оплаты: {format_price_kopeks(user_balance - total_price)}',
-            reply_markup=get_tariff_confirm_keyboard(tariff_id, period, db_user.language, total_price),  # KELDARI-UI
+            reply_markup=get_tariff_confirm_keyboard(tariff_id, period, db_user.language, total_price),  # CUSTOM-UI
             parse_mode='HTML',
         )
 

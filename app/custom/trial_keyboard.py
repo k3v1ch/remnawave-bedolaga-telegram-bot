@@ -1,4 +1,4 @@
-"""KELDARI-UI: пост-обработка клавиатуры экрана SCR-TRIAL-ACTIVATED.
+"""CUSTOM-UI: пост-обработка клавиатуры экрана SCR-TRIAL-ACTIVATED.
 
 Эталон (kb_trial_activated): `[Подключиться](primary) [Инструкция](url)` в один
 ряд + `[‹ Главное меню]`. Бедолага строит клавиатуру подключения в 5 вариантах
@@ -20,8 +20,8 @@ def apply_trial_activated_styling(markup: InlineKeyboardMarkup, texts) -> Inline
     rows[0] = [button.model_copy(update={'style': 'primary'}) for button in rows[0]]
 
     instructions_button = InlineKeyboardButton(
-        text=texts.t('KELDARI_MAIN_MENU_INSTRUCTIONS_BUTTON', 'Инструкция'),
-        url=texts.t('KELDARI_INSTRUCTIONS_URL', 'https://telegra.ph/verno-vpn-instructions'),
+        text=texts.t('CUSTOM_MAIN_MENU_INSTRUCTIONS_BUTTON', 'Инструкция'),
+        url=texts.t('CUSTOM_INSTRUCTIONS_URL', 'https://telegra.ph/verno-vpn-instructions'),
     )
     if len(rows[0]) == 1:
         rows[0].append(instructions_button)

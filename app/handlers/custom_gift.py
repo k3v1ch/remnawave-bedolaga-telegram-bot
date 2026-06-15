@@ -1,4 +1,4 @@
-"""KELDARI-UI: подарки в боте — покупка подарочной подписки за баланс + ссылка.
+"""CUSTOM-UI: подарки в боте — покупка подарочной подписки за баланс + ссылка.
 
 Переиспользует GuestPurchase-конвейер Бедолаги: `create_purchase` (is_gift, code-only,
 без получателя) + оплата с баланса (`subtract_user_balance` + транзакция GIFT_PAYMENT) +
@@ -37,7 +37,7 @@ from app.utils.photo_message import edit_or_answer_photo
 logger = structlog.get_logger(__name__)
 
 
-KELDARI_GIFT_STATUS_LABELS = {
+CUSTOM_GIFT_STATUS_LABELS = {
     GuestPurchaseStatus.PENDING.value: '⏳ ожидает оплаты',
     GuestPurchaseStatus.PAID.value: '🎁 ждёт активации',
     GuestPurchaseStatus.PENDING_ACTIVATION.value: '🎁 ждёт активации',
@@ -116,7 +116,7 @@ _GIFTS_PER_PAGE = 5
 async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     texts = get_texts(db_user.language)
 
-    # KELDARI-UI: пагинация — со страницы 0 (callback keldari_gift) или kgift_page:{n}
+    # CUSTOM-UI: пагинация — со страницы 0 (callback custom_gift) или kgift_page:{n}
     page = 0
     data = callback.data or ''
     if data.startswith('kgift_page:'):
@@ -144,9 +144,9 @@ async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: Async
         'Подарите подписку другу — он активирует её одной ссылкой, без промокодов.',
     ]
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text=texts.t('KELDARI_GIFT_CREATE_BUTTON', '🎁 Подарить подписку'), callback_data='kgift_create', style='primary')]
+        [InlineKeyboardButton(text=texts.t('CUSTOM_GIFT_CREATE_BUTTON', '🎁 Подарить подписку'), callback_data='kgift_create', style='primary')]
     ]
-    # KELDARI-UI: подарки-карточки (все статусы). Клик по подарку → экран деталей
+    # CUSTOM-UI: подарки-карточки (все статусы). Клик по подарку → экран деталей
     # (show_gift_card): тариф/срок/цена/когда куплен + кто и когда активировал.
     if gifts:
         lines.append('')
@@ -163,7 +163,7 @@ async def show_gift_menu(callback: types.CallbackQuery, db_user: User, db: Async
             [InlineKeyboardButton(text=f'{emoji} {tname} · {gift.period_days} дн', callback_data=f'kgift_card:{gift.id}')]
         )
 
-    # KELDARI-UI: листалка, если подарков больше одной страницы (> 5)
+    # CUSTOM-UI: листалка, если подарков больше одной страницы (> 5)
     if pages > 1:
         nav: list[InlineKeyboardButton] = []
         if page > 0:
@@ -188,7 +188,7 @@ async def start_create(callback: types.CallbackQuery, db_user: User, db: AsyncSe
     for tariff in tariffs:
         devices = getattr(tariff, 'device_limit', 0) or 0
         rows.append([InlineKeyboardButton(text=f'{tariff.name} · до {devices} устр.', callback_data=f'kgift_tariff:{tariff.id}')])
-    rows.append(_back_row('keldari_gift'))
+    rows.append(_back_row('custom_gift'))
     text = '🎁 <b>Подарить подписку</b>\n\nВыберите тариф:' if tariffs else '🎁 Подарить подписку\n\nСейчас нет тарифов, доступных для подарка.'
     await edit_or_answer_photo(callback=callback, caption=text, keyboard=InlineKeyboardMarkup(inline_keyboard=rows), parse_mode='HTML')
     await callback.answer()
@@ -239,11 +239,11 @@ async def confirm(callback: types.CallbackQuery, db_user: User, db: AsyncSession
         rows.append([InlineKeyboardButton(text=f'🎁 Подарить за {format_price_kopeks(price)}', callback_data=f'kgift_confirm:{tariff_id}:{days}', style='success')])
     else:
         deficit = price - balance
-        # KELDARI-UI: сохраняем «корзину-подарок» → после пополнения дефицита подарок
-        # создастся автоматически (хук auto_purchase_saved_cart_after_topup → keldari_gift).
+        # CUSTOM-UI: сохраняем «корзину-подарок» → после пополнения дефицита подарок
+        # создастся автоматически (хук auto_purchase_saved_cart_after_topup → custom_gift).
         await user_cart_service.save_user_cart(
             db_user.id,
-            {'type': 'keldari_gift', 'tariff_id': tariff_id, 'period_days': days, 'total_price': price, 'return_to_cart': True},
+            {'type': 'custom_gift', 'tariff_id': tariff_id, 'period_days': days, 'total_price': price, 'return_to_cart': True},
             ttl=3600,
         )
         lines.append('')
@@ -305,16 +305,16 @@ async def _create_gift_from_balance(db: AsyncSession, user: User, tariff, period
                 description=description,
             )
         except Exception as side_error:
-            logger.warning('keldari_gift: side-effects не выполнены', error=str(side_error))
-        logger.info('keldari_gift: подарок создан', user_id=user.id, purchase_id=purchase.id, amount_kopeks=price_kopeks, period_days=period_days)
+            logger.warning('custom_gift: side-effects не выполнены', error=str(side_error))
+        logger.info('custom_gift: подарок создан', user_id=user.id, purchase_id=purchase.id, amount_kopeks=price_kopeks, period_days=period_days)
         return purchase
     except GuestPurchaseError as gift_error:
         await db.rollback()
-        logger.error('keldari_gift: GuestPurchaseError', error=gift_error.message)
+        logger.error('custom_gift: GuestPurchaseError', error=gift_error.message)
         return None
     except Exception as error:
         await db.rollback()
-        logger.error('keldari_gift: ошибка создания подарка', error=str(error))
+        logger.error('custom_gift: ошибка создания подарка', error=str(error))
         return None
 
 
@@ -336,7 +336,7 @@ def _gift_ready_keyboard(token: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text='📤 Поделиться ссылкой на подарок', url=_share_url(link))],
-            [InlineKeyboardButton(text='‹ К подаркам', callback_data='keldari_gift')],
+            [InlineKeyboardButton(text='‹ К подаркам', callback_data='custom_gift')],
         ]
     )
 
@@ -389,7 +389,7 @@ async def show_gift_card(callback: types.CallbackQuery, db_user: User, db: Async
 
     tname = gift.tariff.name if gift.tariff else '—'
     devices = getattr(gift.tariff, 'device_limit', 0) or 0
-    status_label = KELDARI_GIFT_STATUS_LABELS.get(gift.status, gift.status)
+    status_label = CUSTOM_GIFT_STATUS_LABELS.get(gift.status, gift.status)
     is_claimable = gift.status in _CLAIMABLE
     is_delivered = gift.status == GuestPurchaseStatus.DELIVERED.value
 
@@ -410,7 +410,7 @@ async def show_gift_card(callback: types.CallbackQuery, db_user: User, db: Async
         keyboard = _gift_ready_keyboard(gift.token)
     else:
         # Активированный/иной — копирование недоступно, только назад к списку.
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_row('keldari_gift')])
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[_back_row('custom_gift')])
 
     await edit_or_answer_photo(callback=callback, caption='\n'.join(lines), keyboard=keyboard, parse_mode='HTML')
     await callback.answer()
@@ -433,7 +433,7 @@ async def show_topup_for_amount(callback: types.CallbackQuery, db_user: User, db
     texts = get_texts(db_user.language)
     keyboard = get_payment_methods_keyboard(kopeks, db_user.language)
     rows = [list(row) for row in keyboard.inline_keyboard]
-    rows.append([InlineKeyboardButton(text=texts.t('KELDARI_BACK_BUTTON', '‹ Назад'), callback_data='back_to_menu')])
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='back_to_menu')])
     text = (
         f'💳 <b>Пополнение на {format_price_kopeks(kopeks)}</b>\n\n'
         'Выберите способ оплаты — после зачисления покупка завершится автоматически.'
@@ -443,7 +443,7 @@ async def show_topup_for_amount(callback: types.CallbackQuery, db_user: User, db
 
 
 async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *, bot=None) -> None:
-    """Завершает создание подарка после пополнения (ветка type=='keldari_gift' в
+    """Завершает создание подарка после пополнения (ветка type=='custom_gift' в
     auto_purchase_saved_cart_after_topup). Если пополнения не хватило — корзина живёт по TTL."""
     price = int(cart.get('total_price') or 0)
     tariff_id = cart.get('tariff_id')
@@ -452,7 +452,7 @@ async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *,
         await user_cart_service.delete_user_cart(user.id)
         return
     if (user.balance_kopeks or 0) < price:
-        logger.info('keldari_gift: пополнения пока не хватает для подарка', user_id=user.id, need=price, have=user.balance_kopeks)
+        logger.info('custom_gift: пополнения пока не хватает для подарка', user_id=user.id, need=price, have=user.balance_kopeks)
         return
     tariff = await get_tariff_by_id(db, int(tariff_id))
     if not tariff:
@@ -466,7 +466,7 @@ async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *,
         pass
     if not purchase:
         return
-    logger.info('keldari_gift: подарок создан после пополнения', user_id=user.id, purchase_id=purchase.id)
+    logger.info('custom_gift: подарок создан после пополнения', user_id=user.id, purchase_id=purchase.id)
     if bot and user.telegram_id:
         text = (
             '✅ <b>Подарок готов!</b>\n\n'
@@ -478,11 +478,11 @@ async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *,
         try:
             await bot.send_message(user.telegram_id, text, reply_markup=_gift_ready_keyboard(purchase.token), parse_mode='HTML')
         except Exception as send_error:
-            logger.warning('keldari_gift: не удалось отправить ссылку после пополнения', error=str(send_error))
+            logger.warning('custom_gift: не удалось отправить ссылку после пополнения', error=str(send_error))
 
 
 def register_handlers(dp: Dispatcher):
-    dp.callback_query.register(show_gift_menu, F.data == 'keldari_gift')
+    dp.callback_query.register(show_gift_menu, F.data == 'custom_gift')
     dp.callback_query.register(show_gift_menu, F.data.startswith('kgift_page:'))
     dp.callback_query.register(show_topup_for_amount, F.data.startswith('kbal_topup:'))
     dp.callback_query.register(start_create, F.data == 'kgift_create')

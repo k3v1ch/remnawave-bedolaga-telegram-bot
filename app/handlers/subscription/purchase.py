@@ -1253,13 +1253,13 @@ async def activate_trial(callback: types.CallbackQuery, db_user: User, db: Async
                     ]
                 )
 
-            # KELDARI-UI: SCR-TRIAL-ACTIVATED — [Подключиться](primary) + [Инструкция](url)
+            # CUSTOM-UI: SCR-TRIAL-ACTIVATED — [Подключиться](primary) + [Инструкция](url)
             try:
-                from app.keldari.trial_keyboard import apply_trial_activated_styling
+                from app.custom.trial_keyboard import apply_trial_activated_styling
 
                 connect_keyboard = apply_trial_activated_styling(connect_keyboard, texts)
-            except Exception as keldari_error:
-                logger.debug('KELDARI-UI: не удалось применить стили триал-клавиатуры', error=keldari_error)
+            except Exception as custom_error:
+                logger.debug('CUSTOM-UI: не удалось применить стили триал-клавиатуры', error=custom_error)
 
             await callback.message.edit_text(
                 trial_success_text,
@@ -3468,13 +3468,13 @@ async def handle_trial_pay_with_balance(callback: types.CallbackQuery, db_user: 
             connect_mode = settings.CONNECT_BUTTON_MODE
             connect_keyboard = _build_trial_success_keyboard(texts, subscription_link, connect_mode)
 
-            # KELDARI-UI: SCR-TRIAL-ACTIVATED — [Подключиться](primary) + [Инструкция](url)
+            # CUSTOM-UI: SCR-TRIAL-ACTIVATED — [Подключиться](primary) + [Инструкция](url)
             try:
-                from app.keldari.trial_keyboard import apply_trial_activated_styling
+                from app.custom.trial_keyboard import apply_trial_activated_styling
 
                 connect_keyboard = apply_trial_activated_styling(connect_keyboard, texts)
-            except Exception as keldari_error:
-                logger.debug('KELDARI-UI: не удалось применить стили триал-клавиатуры', error=keldari_error)
+            except Exception as custom_error:
+                logger.debug('CUSTOM-UI: не удалось применить стили триал-клавиатуры', error=custom_error)
 
             await callback.message.edit_text(
                 trial_success_text,

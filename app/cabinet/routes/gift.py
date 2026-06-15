@@ -56,7 +56,7 @@ router = APIRouter(prefix='/gift', tags=['Cabinet Gift'])
 
 GIFT_ENABLED_KEY = 'CABINET_GIFT_ENABLED'
 
-# KELDARI-UI: длина префикса токена, отдаваемого владельцу для шаринг-ссылок
+# CUSTOM-UI: длина префикса токена, отдаваемого владельцу для шаринг-ссылок
 # (Telegram deep-link `GIFT_<token>` и сайт `/buy/gift/<token>`). 32 base64-символа
 # ≈ 192 бита — перебор/коллизии невозможны, а `GIFT_`+32 = 37 ≤ 64 (лимит Telegram).
 # Публичный claim ищет подарок по этому префиксу через startswith (см. landing.py).
