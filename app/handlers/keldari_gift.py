@@ -318,27 +318,27 @@ async def _create_gift_from_balance(db: AsyncSession, user: User, tariff, period
         return None
 
 
+def _gift_share_link(token: str) -> str:
+    """Единая ссылка на подарок: страница активации на сайте (получатель сам выбирает
+    Telegram или почту). Если CABINET_URL не задан — фолбэк на Telegram deep-link."""
+    return _gift_site_link(token) or _gift_link(token)
+
+
 def _gift_links_caption(token: str) -> str:
-    """Текст-блок с обеими ссылками активации подарка: Telegram + сайт."""
-    tg = _gift_link(token)
-    site = _gift_site_link(token)
-    lines = ['🔗 <b>Telegram:</b>', f'<code>{html.escape(tg)}</code>']
-    if site:
-        lines += ['', '🌐 <b>Сайт:</b>', f'<code>{html.escape(site)}</code>']
-    return '\n'.join(lines)
+    """Текст-блок с одной ссылкой на подарок (ведёт на страницу выбора активации)."""
+    link = _gift_share_link(token)
+    return f'🔗 <b>Ссылка на подарок:</b>\n<code>{html.escape(link)}</code>'
 
 
 def _gift_ready_keyboard(token: str) -> InlineKeyboardMarkup:
-    """Кнопки шаринга подарка: переслать в Telegram и/или поделиться ссылкой на сайт."""
-    tg = _gift_link(token)
-    site = _gift_site_link(token)
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text='📤 Переслать в Telegram', url=_share_url(tg))]
-    ]
-    if site:
-        rows.append([InlineKeyboardButton(text='🌐 Поделиться ссылкой на сайт', url=_share_url(site))])
-    rows.append([InlineKeyboardButton(text='‹ К подаркам', callback_data='keldari_gift')])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    """Одна кнопка шаринга подарка + назад к списку."""
+    link = _gift_share_link(token)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='📤 Поделиться ссылкой на подарок', url=_share_url(link))],
+            [InlineKeyboardButton(text='‹ К подаркам', callback_data='keldari_gift')],
+        ]
+    )
 
 
 async def execute_gift(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
@@ -361,7 +361,7 @@ async def execute_gift(callback: types.CallbackQuery, db_user: User, db: AsyncSe
         '✅ <b>Подарок готов!</b>\n\n'
         f'Тариф: {html.escape(tariff.name)}\n'
         f'Срок: {days} дн\n\n'
-        'Перешлите другу любую из ссылок — он активирует подписку одним кликом, без промокодов:\n\n'
+        'Перешлите другу ссылку — он сам выберёт, активировать в Telegram или по почте:\n\n'
         f'{_gift_links_caption(purchase.token)}'
     )
     await edit_or_answer_photo(callback=callback, caption=text, keyboard=_gift_ready_keyboard(purchase.token), parse_mode='HTML')
@@ -406,7 +406,7 @@ async def show_gift_card(callback: types.CallbackQuery, db_user: User, db: Async
         lines += [f'Активировал: {who}', f'Когда активирован: {_fmt_dt(gift.delivered_at)}']
 
     if is_claimable:
-        lines += ['', 'Ссылки для активации (перешлите другу любую):', '', _gift_links_caption(gift.token)]
+        lines += ['', 'Перешлите другу ссылку (он выберёт Telegram или почту):', '', _gift_links_caption(gift.token)]
         keyboard = _gift_ready_keyboard(gift.token)
     else:
         # Активированный/иной — копирование недоступно, только назад к списку.
@@ -472,7 +472,7 @@ async def complete_gift_after_topup(db: AsyncSession, user: User, cart: dict, *,
             '✅ <b>Подарок готов!</b>\n\n'
             f'Тариф: {html.escape(tariff.name)}\n'
             f'Срок: {days} дн\n\n'
-            'Перешлите другу любую из ссылок — он активирует подписку одним кликом:\n\n'
+            'Перешлите другу ссылку — он сам выберёт, активировать в Telegram или по почте:\n\n'
             f'{_gift_links_caption(purchase.token)}'
         )
         try:
