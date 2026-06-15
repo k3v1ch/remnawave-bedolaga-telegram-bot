@@ -1314,6 +1314,19 @@ def get_subscription_manage_keyboard(
             ]
         )
 
+    # [💳 Автоплатёж] — недоступен для триала и суточных тарифов (как и сам
+    # handle_autopay_menu: для них показывается alert-заглушка). Открывает меню
+    # автопродления (callback subscription_autopay → purchase.py).
+    if subscription and not is_trial and not is_daily_tariff:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('AUTOPAY_BUTTON', '💳 Автоплатёж'),
+                    callback_data='subscription_autopay',
+                )
+            ]
+        )
+
     # [Устройства]
     keyboard.append(
         [
