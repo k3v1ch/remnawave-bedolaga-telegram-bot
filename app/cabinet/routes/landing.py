@@ -9,14 +9,14 @@ from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cabinet.dependencies import get_cabinet_db
+from app.cabinet.dependencies import get_cabinet_db, get_current_cabinet_user
 from app.cabinet.ip_utils import get_client_ip
 from app.cabinet.utils.locale import DEFAULT_LOCALE, resolve_locale_text
 from app.config import settings
 from app.database.crud.landing import get_active_landing_by_slug, get_purchase_by_token
 from app.database.crud.tariff import get_tariff_by_id
 from app.database.crud.user import get_user_by_email
-from app.database.models import GuestPurchase, GuestPurchaseStatus, LandingPage, Tariff
+from app.database.models import GuestPurchase, GuestPurchaseStatus, LandingPage, Tariff, User
 from app.services.guest_purchase_service import (
     GuestPurchaseError,
     _find_or_create_user,
@@ -616,6 +616,81 @@ async def claim_gift(
 
     # Guards passed — now create/finalize the account the gift binds to.
     user, _is_new = await _find_or_create_user(db, 'email', body.email, purchase=purchase, tariff_id=purchase.tariff_id)
+
+    # Bind (if unbound) and move PAID → PENDING_ACTIVATION so activate accepts it.
+    if purchase.user_id is None:
+        purchase.user_id = user.id
+    if purchase.status == GuestPurchaseStatus.PAID.value:
+        purchase.status = GuestPurchaseStatus.PENDING_ACTIVATION.value
+    await db.flush()
+
+    try:
+        purchase = await activate_guest_purchase(db, purchase.token, skip_notification=True)
+    except GuestPurchaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    tariff = await get_tariff_by_id(db, purchase.tariff_id)
+    return GiftClaimResponse(
+        status=purchase.status,
+        tariff_name=tariff.name if tariff else None,
+        period_days=purchase.period_days,
+        subscription_url=purchase.subscription_url,
+        subscription_crypto_link=purchase.subscription_crypto_link,
+        auto_login_token=purchase.auto_login_token,
+    )
+
+
+@router.post('/gift/{token}/claim-authenticated', response_model=GiftClaimResponse)
+async def claim_gift_authenticated(
+    token: str,
+    raw_request: Request,
+    user: User = Depends(get_current_cabinet_user),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """Authenticated arm of the gift claim — binds the gift to the logged-in account.
+
+    KELDARI-UI: получатель сначала входит или регистрируется (подтверждая владение
+    почтой), и только потом подарок привязывается к его аккаунту. В отличие от
+    анонимного ``claim_gift`` здесь не создаётся «молчаливый» passwordless-аккаунт
+    из одного e-mail — личность уже подтверждена JWT.
+    """
+    client_ip = get_client_ip(raw_request)
+    if await RateLimitCache.is_ip_rate_limited(client_ip, 'gift_claim', limit=5, window=60, fail_closed=True):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail='Too many requests')
+
+    if len(token) < _GIFT_CLAIM_MIN_TOKEN_LEN:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift not found')
+
+    purchase = await _find_gift_by_token_prefix(db, token, for_update=True)
+    if purchase is None or not purchase.is_gift:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Gift not found')
+
+    if purchase.status not in (
+        GuestPurchaseStatus.PAID.value,
+        GuestPurchaseStatus.PENDING_ACTIVATION.value,
+        GuestPurchaseStatus.DELIVERED.value,
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='This gift cannot be activated')
+
+    # Self-activation guard — cabinet-originated gifts know their buyer.
+    if purchase.buyer_user_id is not None and purchase.buyer_user_id == user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Cannot activate your own gift')
+
+    # Ownership guard — already claimed by a different account.
+    if purchase.user_id is not None and purchase.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail='This gift has already been claimed')
+
+    # Idempotent — already delivered to this same account: just return the link.
+    if purchase.status == GuestPurchaseStatus.DELIVERED.value and purchase.user_id == user.id:
+        tariff = await get_tariff_by_id(db, purchase.tariff_id)
+        return GiftClaimResponse(
+            status=purchase.status,
+            tariff_name=tariff.name if tariff else None,
+            period_days=purchase.period_days,
+            subscription_url=purchase.subscription_url,
+            subscription_crypto_link=purchase.subscription_crypto_link,
+            auto_login_token=purchase.auto_login_token,
+        )
 
     # Bind (if unbound) and move PAID → PENDING_ACTIVATION so activate accepts it.
     if purchase.user_id is None:
