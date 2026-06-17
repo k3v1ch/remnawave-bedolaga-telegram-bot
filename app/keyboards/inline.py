@@ -1112,9 +1112,15 @@ def get_subscription_keyboard(
     language: str = DEFAULT_LANGUAGE, has_subscription: bool = False, is_trial: bool = False, subscription=None
 ) -> InlineKeyboardMarkup:
     from app.config import settings
+    from app.utils.clone_context import is_clone_context
 
     texts = get_texts(language)
     keyboard = []
+
+    # White-label clone bots hide main-brand-only actions on the account screen:
+    # [🎁 Подарки] and [Профиль] (site login/email) belong to the main shop, not a
+    # reseller's clone. is_clone_context() is True only inside the cloner host.
+    is_clone = is_clone_context()
 
     # Sub ID suffix for multi-tariff callback routing
     _sub_suffix = (
@@ -1249,15 +1255,17 @@ def get_subscription_keyboard(
                     ]
                 )
 
-        # CUSTOM-UI: [🎁 Подарить] — флоу подарка (GuestPurchase-ссылка, оплата с баланса)
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CUSTOM_ACC_GIFT_BUTTON', '🎁 Подарки'),
-                    callback_data='custom_gift',
-                )
-            ]
-        )
+        # CUSTOM-UI: [🎁 Подарить] — флоу подарка (GuestPurchase-ссылка, оплата с баланса).
+        # Скрыт на клонах (фича основного магазина).
+        if not is_clone:
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        text=texts.t('CUSTOM_ACC_GIFT_BUTTON', '🎁 Подарки'),
+                        callback_data='custom_gift',
+                    )
+                ]
+            )
         # CUSTOM-UI: [⚙️ Управление ▸] — подменю со вторичными действиями
         keyboard.append(
             [
@@ -1267,19 +1275,22 @@ def get_subscription_keyboard(
                 )
             ]
         )
-        # CUSTOM-UI: ряд [Баланс]+[Профиль] как в SCR-ACCOUNT эталона
-        keyboard.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CUSTOM_ACC_BALANCE_BUTTON', 'Баланс'),
-                    callback_data='menu_balance',
-                ),
+        # CUSTOM-UI: ряд [Баланс]+[Профиль] как в SCR-ACCOUNT эталона. На клонах [Профиль]
+        # (вход на сайт/email) скрыт — остаётся только [Баланс].
+        balance_row = [
+            InlineKeyboardButton(
+                text=texts.t('CUSTOM_ACC_BALANCE_BUTTON', 'Баланс'),
+                callback_data='menu_balance',
+            )
+        ]
+        if not is_clone:
+            balance_row.append(
                 InlineKeyboardButton(
                     text=texts.t('CUSTOM_ACC_PROFILE_BUTTON', 'Профиль'),
                     callback_data='custom_profile',
-                ),
-            ]
-        )
+                )
+            )
+        keyboard.append(balance_row)
 
     keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)

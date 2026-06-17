@@ -231,6 +231,15 @@ class AuthMiddleware(BaseMiddleware):
                                     )
                                 )
 
+                # White-label attribution: tag the user to the clone bot that brought them
+                # (for CRM "who brought how many users"). Only the cloner process sets
+                # data['clone_bot'] (TenantContextMiddleware); in the main bot it's absent → no-op.
+                # Persisted by the db.commit() below (db_user is already dirty from last_activity).
+                clone = data.get('clone_bot')
+                if clone is not None and getattr(db_user, 'clone_bot_id', None) is None:
+                    db_user.clone_bot_id = getattr(clone, 'clone_id', None)
+                    logger.info('🔗 Attributed user to clone bot', user_id=user.id, clone_id=db_user.clone_bot_id)
+
                 data['db'] = db
                 data['db_user'] = db_user
                 data['is_admin'] = settings.is_admin(user.id)

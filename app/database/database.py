@@ -40,8 +40,8 @@ if IS_SQLITE:
 else:
     poolclass = AsyncAdaptedQueuePool
     pool_kwargs = {
-        'pool_size': 20,  # Уменьшен с 30, чтобы не превышать max_connections PostgreSQL
-        'max_overflow': 20,  # Уменьшен с 50, макс 40 соединений вместо 80
+        'pool_size': settings.DB_POOL_SIZE,  # per-process; cloner runs lower (see compose)
+        'max_overflow': settings.DB_MAX_OVERFLOW,  # bounds total conns shared with the main bot
         'pool_timeout': 30,  # Уменьшен с 60, быстрее отдавать 503 при перегрузке
         'pool_recycle': 1800,  # 30 мин для более быстрого recycling
         'pool_pre_ping': True,

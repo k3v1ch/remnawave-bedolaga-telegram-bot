@@ -103,6 +103,11 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = 'remnawave_user'
     POSTGRES_PASSWORD: str = 'secure_password_123'
 
+    # Connection pool sizing (per process). The cloner overrides these lower so a
+    # clone-bot storm can't exhaust Postgres connections shared with the main bot.
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 20
+
     SQLITE_PATH: str = './data/bot.db'
     LOCALES_PATH: str = './locales'
 
@@ -1035,6 +1040,31 @@ class Settings(BaseSettings):
     WEBHOOK_ENQUEUE_TIMEOUT: float = 0.1
     WEBHOOK_WORKER_SHUTDOWN_TIMEOUT: float = 30.0
     BOT_RUN_MODE: str = 'polling'
+
+    # --- White-label clone bots (reseller) ---
+    # Master key used to encrypt clone-bot tokens at rest (Fernet). Any passphrase works
+    # (a stable Fernet key is derived from it). MUST be set to enable the feature.
+    CLONE_TOKEN_SECRET: str | None = None
+    # The single `cloner` container that serves ALL clone bots. When this process runs
+    # with CLONE_HOST_ENABLED=true it boots the registry + the /clone/tg/{id} webhook app.
+    CLONE_HOST_ENABLED: bool = False
+    # Public base URL where Telegram delivers clone updates; updates land on
+    # CLONE_PUBLIC_BASE_URL + CLONE_WEBHOOK_PATH_PREFIX + /{clone_id}. Falls back to WEBHOOK_URL.
+    CLONE_PUBLIC_BASE_URL: str | None = None
+    CLONE_WEBHOOK_PATH_PREFIX: str = '/clone/tg'
+    # Guardrails (self-serve hosting of third-party bots).
+    CLONE_MAX_ACTIVE: int = 200
+    CLONE_MAX_PER_USER: int = 3
+    # cloner webhook processor sizing (independent from the main bot's pool).
+    CLONE_WEBHOOK_WORKERS: int = 8
+    CLONE_WEBHOOK_QUEUE_MAXSIZE: int = 2048
+    CLONE_WEBHOOK_ENQUEUE_TIMEOUT: float = 0.1
+    # Redis pub/sub channel for hot-swap events between the main bot and the cloner.
+    CLONE_EVENTS_CHANNEL: str = 'clone_bots:events'
+    CLONE_RECONCILE_INTERVAL_SECONDS: int = 120
+    # Bind for the cloner's own uvicorn server (Telegram → Caddy → here).
+    CLONE_HOST_BIND: str = '0.0.0.0'
+    CLONE_HOST_PORT: int = 8081
 
     WEB_API_ENABLED: bool = False
     WEB_API_HOST: str = '0.0.0.0'

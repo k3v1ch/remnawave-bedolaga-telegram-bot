@@ -50,6 +50,7 @@ from app.database.models import (
     UserPromoGroup,
     UserStatus,
 )
+from app.services.clone_bot_service import resolve_external_squad_uuid
 from app.services.permission_service import PermissionService
 from app.utils.subscription_utils import coerce_panel_device_limit
 from app.utils.timezone import panel_datetime_to_utc
@@ -346,7 +347,9 @@ async def _sync_subscription_to_panel(
             await db.refresh(subscription, ['tariff'])
         except Exception:
             pass
-        ext_squad_uuid = subscription.tariff.external_squad_uuid if subscription.tariff else None
+        ext_squad_uuid = await resolve_external_squad_uuid(
+            db, clone_bot_id=user.clone_bot_id, tariff=subscription.tariff
+        )
 
         changes = {}
         async with service.get_api_client() as api:
@@ -3445,7 +3448,9 @@ async def sync_user_to_panel(
             await db.refresh(sub, ['tariff'])
         except Exception:
             pass
-        ext_squad_uuid = sub.tariff.external_squad_uuid if sub.tariff else None
+        ext_squad_uuid = await resolve_external_squad_uuid(
+            db, clone_bot_id=user.clone_bot_id, tariff=sub.tariff
+        )
 
         async with service.get_api_client() as api:
             # Validate existing UUID

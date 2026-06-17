@@ -91,6 +91,15 @@ class ChannelCheckerMiddleware(BaseMiddleware):
         if not settings.CHANNEL_IS_REQUIRED_SUB:
             return await handler(event, data)
 
+        # White-label clone bots never gate users behind the MAIN brand's required
+        # channels: a reseller's audience has no reason to join our channel, and the
+        # clone bot isn't an admin there to verify membership anyway (getChatMember
+        # would fail and wrongly block everyone). data['clone_bot'] is set by
+        # TenantContextMiddleware only in the cloner host; it is always None in the
+        # main bot, so this leaves the main bot's behaviour untouched.
+        if data.get('clone_bot') is not None:
+            return await handler(event, data)
+
         # Fast-path bypasses
         telegram_id = None
         if isinstance(event, (Message, CallbackQuery)):

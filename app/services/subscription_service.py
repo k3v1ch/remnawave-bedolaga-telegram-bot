@@ -11,6 +11,7 @@ from app.config import settings
 from app.database.crud.server_squad import get_all_server_squads
 from app.database.crud.user import get_user_by_id
 from app.database.models import Subscription, SubscriptionStatus, User
+from app.services.clone_bot_service import resolve_external_squad_uuid
 from app.external.remnawave_api import RemnaWaveAPI, RemnaWaveAPIError, RemnaWaveUser, TrafficLimitStrategy, UserStatus
 from app.utils.subscription_utils import (
     resolve_hwid_device_limit_for_payload,
@@ -181,7 +182,9 @@ class SubscriptionService:
             user_tag = self._resolve_user_tag(subscription)
 
             # Определяем внешний сквад из тарифа
-            ext_squad_uuid = subscription.tariff.external_squad_uuid if subscription.tariff else None
+            ext_squad_uuid = await resolve_external_squad_uuid(
+                db, clone_bot_id=user.clone_bot_id, tariff=subscription.tariff
+            )
 
             async with self.get_api_client() as api:
                 hwid_limit = resolve_hwid_device_limit_for_payload(subscription)
@@ -456,7 +459,9 @@ class SubscriptionService:
             user_tag = self._resolve_user_tag(subscription)
 
             # Определяем внешний сквад из тарифа
-            ext_squad_uuid = subscription.tariff.external_squad_uuid if subscription.tariff else None
+            ext_squad_uuid = await resolve_external_squad_uuid(
+                db, clone_bot_id=user.clone_bot_id, tariff=subscription.tariff
+            )
 
             async with self.get_api_client() as api:
                 hwid_limit = resolve_hwid_device_limit_for_payload(subscription)
@@ -1014,7 +1019,9 @@ class SubscriptionService:
                         )
 
                         user_tag = self._resolve_user_tag(sub)
-                        ext_squad_uuid = sub.tariff.external_squad_uuid if sub.tariff else None
+                        ext_squad_uuid = await resolve_external_squad_uuid(
+                            db, clone_bot_id=user.clone_bot_id, tariff=sub.tariff
+                        )
                         hwid_limit = resolve_hwid_device_limit_for_payload(sub)
 
                         update_kwargs = dict(

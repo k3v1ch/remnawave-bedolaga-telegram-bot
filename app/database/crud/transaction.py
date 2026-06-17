@@ -90,6 +90,18 @@ async def create_transaction(
     if payment_method is None and type in (TransactionType.SUBSCRIPTION_PAYMENT, TransactionType.GIFT_PAYMENT):
         payment_method = PaymentMethod.BALANCE
 
+    # Attribute every transaction to the white-label clone that brought this user (if
+    # any) so the clone-bots CRM can sum revenue per clone. The column has existed since
+    # Phase 0 but nothing populated it — clone revenue would otherwise always read 0.
+    # Best-effort: db.get usually hits the session identity map (no extra query, no
+    # autoflush) because the user is already loaded by the time a transaction is created.
+    clone_bot_id: int | None = None
+    try:
+        _owner = await db.get(User, user_id)
+        clone_bot_id = _owner.clone_bot_id if _owner else None
+    except Exception:  # never let attribution break transaction creation
+        clone_bot_id = None
+
     transaction = Transaction(
         user_id=user_id,
         type=type.value,
@@ -99,6 +111,7 @@ async def create_transaction(
         external_id=external_id,
         is_completed=is_completed,
         completed_at=datetime.now(UTC) if is_completed else None,
+        clone_bot_id=clone_bot_id,
         **({'created_at': created_at} if created_at else {}),
     )
 

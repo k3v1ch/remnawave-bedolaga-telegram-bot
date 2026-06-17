@@ -1874,6 +1874,58 @@ class PartnerStatus(Enum):
     REJECTED = 'rejected'  # Заявка отклонена
 
 
+class CloneBotStatus(Enum):
+    """Статусы white-label клон-бота."""
+
+    PENDING = 'pending'  # создаётся: сквад/вебхук ещё не готовы
+    ACTIVE = 'active'  # работает, вебхук установлен, обслуживается контейнером cloner
+    DISABLED = 'disabled'  # выключен владельцем/админом (kill-switch в CRM)
+    ERROR = 'error'  # авто-выключен из-за сбоя (виден в CRM, last_error)
+
+
+class CloneBot(Base):
+    """White-label клон-бот реселлера.
+
+    Реселлер присылает основному боту BotFather-токен → создаётся строка здесь.
+    ВСЕ клоны обслуживаются ОДНИМ общим контейнером `cloner` (hot-swap, без рестарта):
+    он строит aiogram Bot из токена и кормит апдейты в общий «магазинный» Dispatcher.
+    Каждый пользователь, пришедший через клон, попадает в его external squad в панели
+    (`external_squad_uuid`) с выбранным заголовком профиля (`profile_title`).
+    """
+
+    __tablename__ = 'clone_bots'
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    # Telegram identity (из getMe присланного токена)
+    bot_id = Column(BigInteger, unique=True, nullable=False, index=True)
+    bot_username = Column(String(255), nullable=True)
+    bot_title = Column(String(255), nullable=True)
+
+    # Токен — зашифрован Fernet (app/utils/crypto.py). webhook_secret — для X-Telegram-Bot-Api-Secret-Token.
+    token_encrypted = Column(Text, nullable=False)
+    webhook_secret = Column(String(128), nullable=False)
+
+    # Remnawave external squad этого реселлера
+    external_squad_uuid = Column(String(255), nullable=True, index=True)
+    external_squad_name = Column(String(255), nullable=True)
+    profile_title = Column(String(255), nullable=True)
+    subpage_config_uuid = Column(String(255), nullable=True)
+
+    status = Column(String(20), default=CloneBotStatus.PENDING.value, nullable=False, index=True)
+    last_error = Column(Text, nullable=True)
+
+    created_at = Column(AwareDateTime(), default=func.now())
+    updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
+
+    owner = relationship('User', foreign_keys=[owner_user_id])
+
+    @property
+    def is_active(self) -> bool:
+        return self.status == CloneBotStatus.ACTIVE.value
+
+
 class User(Base):
     __tablename__ = 'users'
 
@@ -1994,6 +2046,9 @@ class User(Base):
 
     # Партнёрская система
     partner_status = Column(String(20), default=PartnerStatus.NONE.value, nullable=False, index=True)
+
+    # White-label: какой клон-бот привёл этого пользователя (атрибуция для CRM). NULL = основной бот.
+    clone_bot_id = Column(Integer, ForeignKey('clone_bots.id', ondelete='SET NULL'), nullable=True, index=True)
 
     @property
     def is_partner(self) -> bool:
@@ -2358,6 +2413,9 @@ class Transaction(Base):
 
     payment_method = Column(String(50), nullable=True)
     external_id = Column(String(255), nullable=True)
+
+    # White-label: какому клон-боту атрибутируется выручка по этой транзакции. NULL = основной бот.
+    clone_bot_id = Column(Integer, ForeignKey('clone_bots.id', ondelete='SET NULL'), nullable=True, index=True)
 
     is_completed = Column(Boolean, default=True)
 

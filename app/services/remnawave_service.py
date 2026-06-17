@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database.crud.server_squad import get_server_squad_by_uuid
+from app.services.clone_bot_service import resolve_external_squad_uuid
 from app.database.crud.subscription import (
     decrement_subscription_server_counts,
 )
@@ -2469,8 +2470,11 @@ class RemnaWaveService:
 
                                 # Внешний сквад: синхронизируем из тарифа (если задан)
                                 # Не отправляем null — RemnaWave API не принимает null для externalSquadUuid (A039)
-                                if sub.tariff and sub.tariff.external_squad_uuid:
-                                    create_kwargs['external_squad_uuid'] = sub.tariff.external_squad_uuid
+                                _ext_squad = await resolve_external_squad_uuid(
+                                    db, clone_bot_id=user.clone_bot_id, tariff=sub.tariff
+                                )
+                                if _ext_squad:
+                                    create_kwargs['external_squad_uuid'] = _ext_squad
 
                                 # Определяем UUID для обновления
                                 panel_uuid = (
@@ -2548,8 +2552,11 @@ class RemnaWaveService:
 
                                     # Внешний сквад: синхронизируем из тарифа (если задан)
                                     # Не отправляем null — RemnaWave API не принимает null для externalSquadUuid (A039)
-                                    if sub.tariff and sub.tariff.external_squad_uuid:
-                                        update_kwargs['external_squad_uuid'] = sub.tariff.external_squad_uuid
+                                    _ext_squad = await resolve_external_squad_uuid(
+                                        db, clone_bot_id=user.clone_bot_id, tariff=sub.tariff
+                                    )
+                                    if _ext_squad:
+                                        update_kwargs['external_squad_uuid'] = _ext_squad
 
                                     try:
                                         await api.update_user(**update_kwargs)

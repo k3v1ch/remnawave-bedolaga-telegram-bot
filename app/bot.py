@@ -7,6 +7,7 @@ from aiogram.fsm.storage.redis import RedisStorage
 from app.config import settings
 from app.handlers import (
     balance,
+    clone_bot,
     common,
     contests as user_contests,
     menu,
@@ -27,6 +28,7 @@ from app.handlers.admin import (
     bot_configuration as admin_bot_configuration,
     bulk_ban as admin_bulk_ban,
     campaigns as admin_campaigns,
+    clone_bots as admin_clone_bots,
     contests as admin_contests,
     daily_contests as admin_daily_contests,
     faq as admin_faq,
@@ -95,42 +97,15 @@ async def debug_callback_handler(callback: types.CallbackQuery):
     logger.info('Username', username=callback.from_user.username)
 
 
-async def setup_bot() -> tuple[Bot, Dispatcher]:
-    try:
-        await cache.connect()
-        logger.info('Кеш инициализирован')
-    except Exception as e:
-        logger.warning('Кеш не инициализирован', error=e)
+def build_shop_dispatcher(storage) -> Dispatcher:
+    """Build the full shop Dispatcher (all middleware + all handler routers) WITHOUT a
+    bound Bot and WITHOUT starting background singletons (maintenance monitor, retry
+    queue, caches). Reused by both the main bot (``setup_bot``) and the multi-tenant
+    cloner host, so every clone bot gets the exact same white-label shop behaviour.
 
-    from app.bot_factory import create_bot
-
-    bot = create_bot()
-
-    proxy_url = settings.get_proxy_url()
-    nalogo_proxy_url = settings.get_nalogo_proxy_url()
-
-    if proxy_url or nalogo_proxy_url:
-        from app.utils.proxy import mask_proxy_url
-
-        if proxy_url:
-            logger.info('Proxy configured', proxy_url=mask_proxy_url(proxy_url))
-        if nalogo_proxy_url:
-            source = 'NALOGO_PROXY_URL' if settings.NALOGO_PROXY_URL else 'PROXY_URL (fallback)'
-            logger.info('Nalogo proxy configured', proxy_url=mask_proxy_url(nalogo_proxy_url), source=source)
-
-    maintenance_service.set_bot(bot)
-    logger.info('Бот установлен в maintenance_service')
-
-    try:
-        redis_client = redis.from_url(settings.REDIS_URL)
-        await redis_client.ping()
-        storage = RedisStorage(redis_client)
-        logger.info('Подключено к Redis для FSM storage')
-    except Exception as e:
-        logger.warning('Не удалось подключиться к Redis', error=e)
-        logger.info('Используется MemoryStorage для FSM')
-        storage = MemoryStorage()
-
+    NOTE (keep in sync): this is THE single place the shop's middleware + routers are
+    wired. The cloner adds its own ``TenantContextMiddleware`` on top of the returned dp.
+    """
     dp = Dispatcher(storage=storage)
 
     dp.message.middleware(ContextVarsMiddleware())
@@ -184,6 +159,7 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
     subscription.register_handlers(dp)
     balance.register_balance_handlers(dp)
     promocode.register_handlers(dp)
+    clone_bot.register_handlers(dp)
     referral.register_handlers(dp)
     support.register_handlers(dp)
     server_status.register_handlers(dp)
@@ -202,6 +178,7 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
     admin_polls.register_handlers(dp)
     admin_promo_groups.register_handlers(dp)
     admin_campaigns.register_handlers(dp)
+    admin_clone_bots.register_handlers(dp)
     admin_contests.register_handlers(dp)
     admin_daily_contests.register_handlers(dp)
     admin_promo_offers.register_handlers(dp)
@@ -235,6 +212,47 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
     logger.info('⭐ Зарегистрированы обработчики Telegram Stars платежей')
     logger.info('⚡ Зарегистрированы обработчики простой покупки')
     logger.info('⚡ Зарегистрированы обработчики простой подписки')
+
+    return dp
+
+
+async def setup_bot() -> tuple[Bot, Dispatcher]:
+    try:
+        await cache.connect()
+        logger.info('Кеш инициализирован')
+    except Exception as e:
+        logger.warning('Кеш не инициализирован', error=e)
+
+    from app.bot_factory import create_bot
+
+    bot = create_bot()
+
+    proxy_url = settings.get_proxy_url()
+    nalogo_proxy_url = settings.get_nalogo_proxy_url()
+
+    if proxy_url or nalogo_proxy_url:
+        from app.utils.proxy import mask_proxy_url
+
+        if proxy_url:
+            logger.info('Proxy configured', proxy_url=mask_proxy_url(proxy_url))
+        if nalogo_proxy_url:
+            source = 'NALOGO_PROXY_URL' if settings.NALOGO_PROXY_URL else 'PROXY_URL (fallback)'
+            logger.info('Nalogo proxy configured', proxy_url=mask_proxy_url(nalogo_proxy_url), source=source)
+
+    maintenance_service.set_bot(bot)
+    logger.info('Бот установлен в maintenance_service')
+
+    try:
+        redis_client = redis.from_url(settings.REDIS_URL)
+        await redis_client.ping()
+        storage = RedisStorage(redis_client)
+        logger.info('Подключено к Redis для FSM storage')
+    except Exception as e:
+        logger.warning('Не удалось подключиться к Redis', error=e)
+        logger.info('Используется MemoryStorage для FSM')
+        storage = MemoryStorage()
+
+    dp = build_shop_dispatcher(storage)
 
     if settings.is_maintenance_monitoring_enabled():
         try:

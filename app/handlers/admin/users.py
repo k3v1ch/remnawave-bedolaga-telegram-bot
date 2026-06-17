@@ -42,6 +42,7 @@ from app.keyboards.admin import (
     get_user_restrictions_keyboard,
 )
 from app.localization.texts import get_texts
+from app.services.clone_bot_service import resolve_external_squad_uuid
 from app.services.remnawave_service import RemnaWaveService
 from app.services.subscription_service import SubscriptionService
 from app.services.user_service import UserService
@@ -4986,7 +4987,9 @@ async def admin_buy_subscription_execute(callback: types.CallbackQuery, db_user:
                     await db.refresh(subscription, ['tariff'])
                 except Exception:
                     pass
-                ext_squad_uuid = subscription.tariff.external_squad_uuid if subscription.tariff else None
+                ext_squad_uuid = await resolve_external_squad_uuid(
+                    db, clone_bot_id=target_user.clone_bot_id, tariff=subscription.tariff
+                )
 
                 _uuid = (
                     getattr(subscription, 'remnawave_uuid', None) if settings.is_multi_tariff_enabled() else None

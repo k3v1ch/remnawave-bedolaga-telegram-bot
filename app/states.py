@@ -1,6 +1,14 @@
 from aiogram.fsm.state import State, StatesGroup
 
 
+class CloneBotStates(StatesGroup):
+    """Self-serve white-label clone-bot onboarding (in the main bot)."""
+
+    waiting_for_token = State()
+    waiting_for_squad_name = State()
+    waiting_for_profile_title = State()
+
+
 class RegistrationStates(StatesGroup):
     waiting_for_language = State()
     waiting_for_rules_accept = State()
