@@ -2,7 +2,7 @@ import hashlib
 import json
 from html import escape as html_escape
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import qrcode
 import structlog
@@ -585,34 +585,24 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
             bonus=texts.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS),
         )
 
-    # Ссылки оборачиваем в <code>: при тапе по <blockquote> для копирования
-    # Telegram сохраняет содержимое <code> в буфере, но ВЫБРАСЫВАЕТ авто-линкнутые
-    # сырые URL — поэтому из скопированного приглашения выпадали обе ссылки
-    # (#634720). Экранируем прозу сами и подставляем ссылки уже в <code>, а не
-    # html_escape-им всю собранную строку (иначе экранировались бы и теги <code>).
-    cabinet_block = ''
-    if cabinet_referral_link:
-        cabinet_block = f'\n\n🌐 <code>{html_escape(cabinet_referral_link)}</code>'
-
     invite_template = texts.t(
         'REFERRAL_INVITE_TEXT',
-        '🎉 Присоединяйся к VPN сервису!{bonus_block}\n\n'
-        '🚀 Быстрое подключение\n'
-        '🌍 Серверы по всему миру\n'
-        '🔒 Надежная защита\n\n'
-        '👇 Переходи по ссылке:\n'
-        '{link}{cabinet_block}',
-    )
-    invite_html = html_escape(invite_template).format(
-        bonus_block=html_escape(bonus_block),
-        link=f'<code>{html_escape(bot_referral_link)}</code>',
-        cabinet_block=cabinet_block,
+        '⚡️ Верно VPN — работает верно, всегда и везде!{bonus_block}\n\n'
+        '🚀 Запусти бота по ссылке выше 👆 и получи бесплатные дни для тестирования.'
+        '{cabinet_block}',
     )
 
-    # Кнопка «Поделиться» — нативный шэр Telegram: тап → выбор чата → текст уже
-    # подставлен (ссылку Telegram добавит из url). Никакого копирования/вставки.
-    share_text = invite_template.format(bonus_block=bonus_block, link='', cabinet_block='').strip()
-    share_url = 'https://t.me/share/url?' + urlencode({'url': bot_referral_link, 'text': share_text})
+    # Ссылка на бота уже стоит сверху (Telegram берёт её из url t.me/share) — в тексте
+    # её НЕ дублируем. Сайт — единственная явная ссылка в теле; в клонах его нет.
+    cabinet_part = f'\n\n🌐 Или заходи с сайта: {cabinet_referral_link}' if cabinet_referral_link else ''
+    share_text = invite_template.format(bonus_block=bonus_block, cabinet_block=cabinet_part).strip()
+    # t.me/share: тап → выбор чата → отправка. url обязателен (с пустым кнопка не тыкается),
+    # кладём в него ссылку на бота — да, Telegram покажет её превью сверху (так и решили).
+    # quote_via=quote → пробелы кодируются как %20, а не «+»: иначе на мобильном Telegram
+    # пробелы отображаются как литеральные «+» (десктоп декодирует, мобильный — нет).
+    share_url = 'https://t.me/share/url?' + urlencode(
+        {'url': bot_referral_link, 'text': share_text}, quote_via=quote
+    )
 
     keyboard = types.InlineKeyboardMarkup(
         inline_keyboard=[
@@ -629,14 +619,13 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
     await edit_or_answer_photo(
         callback,
         (
-            texts.t('REFERRAL_INVITE_CREATED_TITLE', '📝 <b>Приглашение создано!</b>')
+            texts.t('REFERRAL_INVITE_CREATED_TITLE', '📤 <b>Поделиться приглашением</b>')
             + '\n\n'
             + texts.t(
                 'REFERRAL_INVITE_CREATED_INSTRUCTION',
-                'Нажмите «📤 Поделиться» и выберите, куда отправить. Или скопируйте текст ниже:',
+                'Нажмите «📤 Поделиться», выберите чат — приглашение со ссылкой отправится '
+                'само. Или покажите QR-код.',
             )
-            + '\n\n'
-            f'<blockquote>{invite_html}</blockquote>'
         ),
         keyboard,
     )
