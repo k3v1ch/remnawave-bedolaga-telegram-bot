@@ -68,6 +68,7 @@ from app.handlers.custom_stub import register_handlers as register_custom_stub_h
 from app.handlers.custom_mock import register_handlers as register_custom_mock_handlers  # CUSTOM-UI
 from app.handlers.custom_profile import register_handlers as register_custom_profile_handlers  # CUSTOM-UI
 from app.handlers.custom_gift import register_handlers as register_custom_gift_handlers  # CUSTOM-UI
+from app.handlers.custom_reseller import register_handlers as register_custom_reseller_handlers  # CUSTOM-UI
 from app.handlers.stars_payments import register_stars_handlers
 from app.middlewares.auth import AuthMiddleware
 from app.middlewares.blacklist import BlacklistMiddleware
@@ -150,16 +151,20 @@ def build_shop_dispatcher(storage) -> Dispatcher:
     dp.callback_query.middleware(SubscriptionStatusMiddleware())
     dp.pre_checkout_query.middleware(SubscriptionStatusMiddleware())
     start.register_handlers(dp)
+    # Registered early so the clone-onboarding FSM steps (process_token/process_squad_name,
+    # state-filtered) win over any broader text handler — critical for creating a clone
+    # from inside another clone bot.
+    clone_bot.register_handlers(dp)
     menu.register_handlers(dp)
     register_custom_info_handlers(dp)  # CUSTOM-UI: инфо-экраны онбординга
     register_custom_stub_handlers(dp)  # CUSTOM-UI: заглушки кнопок без бэкенда
     register_custom_mock_handlers(dp)  # CUSTOM-UI: навигируемые экраны-реплики макета
     register_custom_profile_handlers(dp)  # CUSTOM-UI: профиль в боте (email/пароль для сайта)
     register_custom_gift_handlers(dp)  # CUSTOM-UI: подарки (GuestPurchase-ссылка, оплата с баланса)
+    register_custom_reseller_handlers(dp)  # CUSTOM-UI: панель «Мои боты» (управление клонами в боте)
     subscription.register_handlers(dp)
     balance.register_balance_handlers(dp)
     promocode.register_handlers(dp)
-    clone_bot.register_handlers(dp)
     referral.register_handlers(dp)
     support.register_handlers(dp)
     server_status.register_handlers(dp)

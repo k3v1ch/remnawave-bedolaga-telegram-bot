@@ -9,11 +9,29 @@ from aiogram.types import FSInputFile, InaccessibleMessage, InputMediaPhoto, Mes
 
 from app.config import settings
 from app.localization.texts import get_texts
+from app.utils.clone_context import get_current_clone, is_clone_context
 
 
 logger = structlog.get_logger(__name__)
 
 LOGO_PATH = Path(settings.LOGO_FILE)
+
+# White-label: in a clone-bot context every outgoing text has our brand swapped for the
+# clone's own name, and the logo image is suppressed entirely. Only the brand+"VPN" form
+# is matched so the adverb "верно" ("работает верно") is left intact.
+_BRAND_RE = re.compile(r'(?:верно|verno)\s*vpn', re.IGNORECASE)
+
+
+def _rebrand(text: str | None) -> str | None:
+    """Replace our brand ("ВЕРНО VPN" / "Верно VPN" / "VERNO VPN") with the clone's own
+    brand (its profile title). No-op in the main bot (no clone context)."""
+    if not text:
+        return text
+    clone = get_current_clone()
+    if clone is None:
+        return text
+    brand = (getattr(clone, 'profile_title', None) or getattr(clone, 'bot_username', None) or 'VPN').strip()
+    return _BRAND_RE.sub(brand, text)
 
 
 def _validate_logo_path(path: Path) -> bool:
@@ -264,8 +282,9 @@ def is_topic_required_error(error: Exception) -> bool:
 
 
 async def _answer_with_photo(self: Message, text: str = None, **kwargs):
-    # Уважаем флаг в рантайме: если логотип выключен — не подменяем ответ
-    if not settings.ENABLE_LOGO_MODE:
+    text = _rebrand(text)
+    # Логотип выключен глобально ИЛИ это клон-бот (white-label — без нашей картинки): текст.
+    if not settings.ENABLE_LOGO_MODE or is_clone_context():
         # Фото-сообщения не показывают web page preview, текстовые — показывают.
         # Подавляем превью чтобы поведение не менялось при переключении режима логотипа.
         kwargs.setdefault('disable_web_page_preview', True)
@@ -319,8 +338,9 @@ async def _answer_with_photo(self: Message, text: str = None, **kwargs):
 
 
 async def _edit_with_photo(self: Message, text: str, **kwargs):
-    # Уважаем флаг в рантайме: если логотип выключен — не подменяем редактирование
-    if not settings.ENABLE_LOGO_MODE:
+    text = _rebrand(text)
+    # Логотип выключен глобально ИЛИ это клон-бот (white-label): редактируем как текст.
+    if not settings.ENABLE_LOGO_MODE or is_clone_context():
         kwargs.setdefault('disable_web_page_preview', True)
         # Медиа-сообщения (фото/видео из рассылки и т.д.) не имеют text — edit_text упадёт.
         # Удаляем старое сообщение и отправляем новое.

@@ -839,6 +839,19 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
         # Unregistered → fall through to normal /start (contests need a subscription anyway).
         start_parameter = None
 
+    # Handle clone-creation deep link: /start clone — the "➕ Создать бота" button inside
+    # a clone bot opens the MAIN bot here so the onboarding runs where it is reliable
+    # (the cloner's FSM/handler chain doesn't pick up the token step). Mothership only.
+    if start_parameter == 'clone':
+        user = db_user or await get_user_by_telegram_id(db, message.from_user.id)
+        if user and user.status != UserStatus.DELETED.value:
+            from app.handlers.clone_bot import start_clone_onboarding
+
+            await start_clone_onboarding(message, user, state, db, clone_bot=None)
+            return
+        # Unregistered → fall through to normal /start; they can create a bot after registering.
+        start_parameter = None
+
     # Keitaro/affiliate click ID rides on /start as `{campaign}_subid_{click_id}`
     # (64 chars total). Pull the click_id into FSM state and continue campaign
     # lookup with the bare campaign portion.

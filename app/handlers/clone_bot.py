@@ -25,6 +25,7 @@ from app.database.crud.clone_bot import (
     count_active,
     count_for_owner,
     create_clone_bot,
+    delete_clone_bot,
     get_clone_bot_by_bot_id,
     set_squad,
     set_status,
@@ -39,6 +40,9 @@ from app.utils.decorators import error_handler
 logger = structlog.get_logger(__name__)
 
 _TOKEN_RE = re.compile(r'^\d{5,}:[\w-]{30,}$')
+# Remnawave rejects external-squad names outside this set (Latin only):
+# "Name can only contain letters, numbers, underscores, dashes and spaces".
+_SQUAD_NAME_RE = re.compile(r'^[A-Za-z0-9 _-]+$')
 _MAX_NAME_LEN = 40
 _MAX_TITLE_LEN = 40
 
@@ -51,38 +55,80 @@ async def _cancelled(message: types.Message, state: FSMContext) -> bool:
     return False
 
 
-@error_handler
-async def cmd_clone(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None):
-    # A clone bot itself must never offer onboarding — mothership only.
-    if clone_bot is not None:
-        return
+async def start_clone_onboarding(target, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None) -> None:
+    """Shared onboarding entry — used by the /clone command and the in-bot reseller
+    panel ("Мои боты"). ``target`` is anything with an async ``.answer()`` (a Message
+    or ``callback.message``). Available in clone bots too — a reseller can grow their own
+    sub-network; every new bot is just another sibling clone owned by its creator."""
     if not settings.CLONE_TOKEN_SECRET:
-        await message.answer('🚧 Функция подключения своих ботов сейчас недоступна.')
+        await target.answer('🚧 Функция подключения своих ботов сейчас недоступна.')
         return
     if await count_active(db) >= settings.CLONE_MAX_ACTIVE:
-        await message.answer('⚠️ Достигнут общий лимит активных ботов. Попробуйте позже.')
+        await target.answer('⚠️ Достигнут общий лимит активных ботов. Попробуйте позже.')
         return
     if await count_for_owner(db, db_user.id) >= settings.CLONE_MAX_PER_USER:
-        await message.answer(f'⚠️ На один аккаунт можно подключить не более {settings.CLONE_MAX_PER_USER} ботов.')
+        await target.answer(f'⚠️ На один аккаунт можно подключить не более {settings.CLONE_MAX_PER_USER} ботов.')
         return
+    # Step 1 — NAME first (more intuitive than asking for a token blind).
+    await state.set_state(CloneBotStates.waiting_for_squad_name)
+    await target.answer(
+        '🤖 <b>Создание своего бота</b>\n\n'
+        'Шаг 1/2 — придумайте <b>название</b> вашего VPN (его увидят клиенты в приложении).\n\n'
+        '❗️ Только <b>английские</b> буквы (A–Z), цифры, пробел, дефис «-» и подчёркивание «_». '
+        'Кириллица и эмодзи не подойдут.\n'
+        'Например: <code>MyVPN</code>, <code>Ivan VPN</code>, <code>Turbo-Net</code>.\n\n'
+        'Для отмены — /cancel'
+    )
+
+
+@error_handler
+async def cmd_clone(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None):
+    await start_clone_onboarding(message, db_user, state, db, clone_bot)
+
+
+@error_handler
+async def process_squad_name(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None):
+    """Step 1 — the NAME (used both for the panel squad and the client-facing profile
+    title). Validated against the panel's charset up front, then we ask for the token."""
+    if await _cancelled(message, state):
+        return
+    name = (message.text or '').strip()
+    if not 1 <= len(name) <= _MAX_NAME_LEN:
+        await message.answer(f'❌ Название должно быть от 1 до {_MAX_NAME_LEN} символов.')
+        return
+    if not _SQUAD_NAME_RE.match(name):
+        await message.answer(
+            '❌ Можно только <b>английские</b> буквы (A–Z), цифры, пробел, дефис «-» и подчёркивание «_». '
+            'Кириллица и эмодзи не подойдут — пришлите другое название.'
+        )
+        return
+
+    await state.update_data(clone_name=name)
     await state.set_state(CloneBotStates.waiting_for_token)
     await message.answer(
-        '🤖 <b>Подключение своего бота</b>\n\n'
-        'Пришлите токен бота от @BotFather (вида <code>123456:ABC-DEF...</code>).\n'
-        'Я подниму его на наших серверах и заведу для него отдельный профиль в панели.\n\n'
+        f'✅ Название: <b>{name}</b>\n\n'
+        'Шаг 2/2 — пришлите <b>токен</b> бота от @BotFather (вида <code>123456:ABC-DEF...</code>).\n'
+        'Я подниму его на наших серверах — дальше он работает сам.\n\n'
         'Для отмены — /cancel'
     )
 
 
 @error_handler
 async def process_token(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None):
-    if clone_bot is not None:
-        return
+    """Step 2 — the TOKEN. Validates via getMe + uniqueness, then creates the clone,
+    provisions the squad (name from step 1) and activates it (hot-swap)."""
     if await _cancelled(message, state):
         return
     token = (message.text or '').strip()
     if not _TOKEN_RE.match(token):
         await message.answer('❌ Это не похоже на токен бота. Пришлите токен от @BotFather или /cancel.')
+        return
+
+    data = await state.get_data()
+    name = data.get('clone_name')
+    if not name:
+        await state.clear()
+        await message.answer('⚠️ Сессия истекла. Начните заново: /clone')
         return
 
     try:
@@ -106,73 +152,28 @@ async def process_token(message: types.Message, db_user: User, state: FSMContext
         await message.answer('⚠️ Этот бот уже подключён.')
         return
 
-    await state.update_data(token=token, bot_id=me.id, bot_username=me.username, bot_title=me.full_name)
-    await state.set_state(CloneBotStates.waiting_for_squad_name)
-    await message.answer(
-        f'✅ Бот <b>@{me.username}</b> распознан.\n\n'
-        'Придумайте <b>название сквада</b> — внутреннее имя группы в панели (например, «Reseller Иван»).'
-    )
-
-
-@error_handler
-async def process_squad_name(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None):
-    if clone_bot is not None:
-        return
-    if await _cancelled(message, state):
-        return
-    name = (message.text or '').strip()
-    if not 1 <= len(name) <= _MAX_NAME_LEN:
-        await message.answer(f'❌ Название должно быть от 1 до {_MAX_NAME_LEN} символов.')
-        return
-    await state.update_data(squad_name=name)
-    await state.set_state(CloneBotStates.waiting_for_profile_title)
-    await message.answer(
-        'Отлично! Теперь пришлите <b>заголовок профиля</b> — название, которое клиенты увидят '
-        'в приложении VPN (например, «MyVPN»).'
-    )
-
-
-@error_handler
-async def process_profile_title(message: types.Message, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None):
-    if clone_bot is not None:
-        return
-    if await _cancelled(message, state):
-        return
-    title = (message.text or '').strip()
-    if not 1 <= len(title) <= _MAX_TITLE_LEN:
-        await message.answer(f'❌ Заголовок должен быть от 1 до {_MAX_TITLE_LEN} символов.')
-        return
-
-    data = await state.get_data()
-    token = data.get('token')
-    bot_id = data.get('bot_id')
-    bot_username = data.get('bot_username')
-    bot_title = data.get('bot_title')
-    squad_name = data.get('squad_name')
-    if not token or not bot_id or not squad_name:
-        await state.clear()
-        await message.answer('⚠️ Сессия истекла. Начните заново: /clone')
-        return
-
-    await message.answer('⏳ Создаю бота и сквад в панели…')
+    await message.answer(f'⏳ Поднимаю бота <b>@{me.username}</b> под названием <b>{name}</b>…')
 
     clone = await create_clone_bot(
         db,
         owner_user_id=db_user.id,
-        bot_id=bot_id,
+        bot_id=me.id,
         token=token,
-        bot_username=bot_username,
-        bot_title=bot_title,
+        bot_username=me.username,
+        bot_title=me.full_name,
         status=CloneBotStatus.PENDING,
     )
 
     try:
-        squad_uuid, squad_real_name = await provision_squad(squad_name, title)
-    except Exception as error:
+        # Same name for the internal squad AND the client-facing profile title.
+        squad_uuid, squad_real_name = await provision_squad(name, name)
+    except Exception:
         logger.exception('Squad provisioning failed', clone_id=clone.id)
-        await set_status(db, clone.id, CloneBotStatus.ERROR, last_error=str(error)[:480])
+        # Roll the row back so the user can retry the same bot cleanly (the uniqueness
+        # guard would otherwise treat the failed bot as "already connected").
+        await delete_clone_bot(db, clone.id)
         await state.clear()
-        await message.answer('❌ Не удалось создать сквад в панели. Бот сохранён со статусом «ошибка» — попробуйте позже из /clone.')
+        await message.answer('❌ Не удалось создать бота. Попробуйте ещё раз чуть позже: /clone')
         return
 
     await set_squad(
@@ -180,7 +181,7 @@ async def process_profile_title(message: types.Message, db_user: User, state: FS
         clone.id,
         external_squad_uuid=squad_uuid,
         external_squad_name=squad_real_name,
-        profile_title=title,
+        profile_title=name,
         subpage_config_uuid=None,
     )
     await set_status(db, clone.id, CloneBotStatus.ACTIVE)
@@ -189,16 +190,14 @@ async def process_profile_title(message: types.Message, db_user: User, state: FS
     await state.clear()
     await message.answer(
         '🎉 <b>Готово!</b>\n\n'
-        f'Бот: @{bot_username}\n'
-        f'Сквад: <b>{squad_real_name}</b>\n'
-        f'Заголовок профиля: <b>{title}</b>\n\n'
-        'Бот уже работает на наших серверах. Все, кто зарегистрируются через него, '
-        'автоматически попадут в этот профиль.'
+        f'Бот: @{me.username}\n'
+        f'Название: <b>{name}</b>\n\n'
+        f'Бот <b>{name}</b> уже работает — можете им пользоваться и приглашать клиентов. '
+        'Все, кто зарегистрируются через него, станут вашими.'
     )
 
 
 def register_handlers(dp: Dispatcher):
     dp.message.register(cmd_clone, Command('clone'))
-    dp.message.register(process_token, CloneBotStates.waiting_for_token)
     dp.message.register(process_squad_name, CloneBotStates.waiting_for_squad_name)
-    dp.message.register(process_profile_title, CloneBotStates.waiting_for_profile_title)
+    dp.message.register(process_token, CloneBotStates.waiting_for_token)

@@ -7,6 +7,9 @@ class CloneBotStates(StatesGroup):
     waiting_for_token = State()
     waiting_for_squad_name = State()
     waiting_for_profile_title = State()
+    # Управление уже созданным ботом из панели «Мои боты»:
+    waiting_for_rename = State()  # новое название (profile title)
+    waiting_for_new_token = State()  # замена токена того же бота
 
 
 class RegistrationStates(StatesGroup):

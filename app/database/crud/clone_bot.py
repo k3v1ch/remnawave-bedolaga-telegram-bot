@@ -147,6 +147,51 @@ async def set_squad(
     return clone
 
 
+async def update_profile_title(db: AsyncSession, clone_id: int, profile_title: str) -> CloneBot | None:
+    """Change the client-facing display name of a clone (the squad's profile title).
+
+    The external squad's *name* is immutable in the panel, but its ``profileTitle`` —
+    what the rebrand logic and VPN clients show — can be changed freely. Callers should
+    also update the panel-side title (``update_squad_profile_title``) and publish a
+    ``reload`` so the cloner's in-memory snapshot picks up the new title.
+    """
+    clone = await db.get(CloneBot, clone_id)
+    if clone is None:
+        return None
+    clone.profile_title = profile_title
+    await db.commit()
+    await db.refresh(clone)
+    return clone
+
+
+async def update_token(
+    db: AsyncSession,
+    clone_id: int,
+    *,
+    token: str,
+    bot_username: str | None = None,
+    bot_title: str | None = None,
+) -> CloneBot | None:
+    """Replace a clone's BotFather token (re-encrypted at rest) without recreating it.
+
+    Used when a reseller re-issues/revokes the token of the *same* bot. ``bot_id`` is
+    intentionally left untouched — callers must verify via getMe that the new token
+    belongs to the same bot before calling. Publish a ``reload`` afterwards so the cloner
+    rebuilds the ``Bot`` and re-asserts the webhook with the new token.
+    """
+    clone = await db.get(CloneBot, clone_id)
+    if clone is None:
+        return None
+    clone.token_encrypted = encrypt_secret(token)
+    if bot_username is not None:
+        clone.bot_username = bot_username
+    if bot_title is not None:
+        clone.bot_title = bot_title
+    await db.commit()
+    await db.refresh(clone)
+    return clone
+
+
 async def delete_clone_bot(db: AsyncSession, clone_id: int) -> bool:
     clone = await db.get(CloneBot, clone_id)
     if clone is None:

@@ -6,6 +6,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.types import InaccessibleMessage, InputMediaPhoto
 
 from app.config import settings
+from app.utils.clone_context import is_clone_context
 
 from .message_patch import (
     LOGO_PATH,
@@ -28,7 +29,7 @@ RETRY_DELAY = 0.5
 def _resolve_media(message: types.Message):
     if isinstance(message, InaccessibleMessage):
         return get_logo_media()
-    if settings.ENABLE_LOGO_MODE and not is_qr_message(message):
+    if settings.ENABLE_LOGO_MODE and not is_clone_context() and not is_qr_message(message):
         return get_logo_media()
     if message.photo and not is_qr_message(message):
         return message.photo[-1].file_id
@@ -89,7 +90,7 @@ async def edit_or_answer_photo(
     # Если сообщение недоступно, отправляем новое сообщение
     if isinstance(callback.message, InaccessibleMessage):
         try:
-            if settings.ENABLE_LOGO_MODE and LOGO_PATH.exists():
+            if settings.ENABLE_LOGO_MODE and not is_clone_context() and LOGO_PATH.exists():
                 result = await callback.message.answer_photo(
                     photo=get_logo_media(),
                     caption=caption,
@@ -115,8 +116,8 @@ async def edit_or_answer_photo(
                 pass
         return
 
-    # Если режим логотипа выключен или требуется текстовое сообщение — работаем текстом
-    if force_text or not settings.ENABLE_LOGO_MODE:
+    # Текст: логотип выключен глобально, запрошен текст, ИЛИ это клон-бот (white-label).
+    if force_text or not settings.ENABLE_LOGO_MODE or is_clone_context():
         try:
             if callback.message.photo:
                 await callback.message.delete()

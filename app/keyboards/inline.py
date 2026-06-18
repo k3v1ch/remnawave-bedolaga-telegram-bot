@@ -105,8 +105,9 @@ async def get_main_menu_keyboard_async(
     rows.append(
         [
             InlineKeyboardButton(
-                text=texts.t('CUSTOM_MAIN_MENU_REF_BUTTON', 'Реферальная программа'),
+                text=texts.t('CUSTOM_MAIN_MENU_REF_BUTTON', '💰 ЗАРАБОТАТЬ'),
                 callback_data='menu_referrals',
+                style='danger',
             )
         ]
     )

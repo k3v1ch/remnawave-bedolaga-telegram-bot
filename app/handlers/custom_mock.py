@@ -220,13 +220,20 @@ def _tiktok_rules_keyboard(texts) -> InlineKeyboardMarkup:
     )
 
 
-def _create_vpn_keyboard(texts) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('CUSTOM_CREATE_VPN_BUTTON', 'Создать своего VPN-бота'), callback_data='kmock_alert:create_bot', style='primary')],
-            [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
-        ]
-    )
+def _create_vpn_keyboard(texts, owned: int = 0, max_bots: int = 0) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    # «Создать бота» исчезает, когда достигнут лимит по ботам.
+    if owned < max_bots:
+        rows.append(
+            [InlineKeyboardButton(text=texts.t('CUSTOM_CREATE_VPN_BUTTON', '➕ Создать своего VPN-бота'), callback_data='myb:create', style='primary')]
+        )
+    # «Мои боты» — отдельной кнопкой, если уже есть хотя бы один бот.
+    if owned > 0:
+        rows.append(
+            [InlineKeyboardButton(text=texts.t('CUSTOM_MY_BOTS_BUTTON', '🤖 Мои боты'), callback_data='myb:list:0')]
+        )
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _render_static(callback: types.CallbackQuery, db_user: User, key: str, default_text: str, keyboard_fn):
@@ -252,8 +259,24 @@ async def show_tiktok_rules(callback: types.CallbackQuery, db_user: User):
     await _render_static(callback, db_user, 'CUSTOM_TIKTOK_RULES_SCREEN', CUSTOM_TIKTOK_RULES_SCREEN_DEFAULT, _tiktok_rules_keyboard)
 
 
-async def show_create_vpn(callback: types.CallbackQuery, db_user: User):
-    await _render_static(callback, db_user, 'CUSTOM_CREATE_VPN_SCREEN', CUSTOM_CREATE_VPN_SCREEN_DEFAULT, _create_vpn_keyboard)
+async def show_create_vpn(callback: types.CallbackQuery, db_user: User, db):
+    from app.config import settings
+    from app.database.crud.clone_bot import count_for_owner
+
+    owned = await count_for_owner(db, db_user.id)
+    max_bots = settings.CLONE_MAX_PER_USER
+    texts = get_texts(db_user.language)
+    try:
+        await edit_or_answer_photo(
+            callback=callback,
+            caption=texts.t('CUSTOM_CREATE_VPN_SCREEN', CUSTOM_CREATE_VPN_SCREEN_DEFAULT),
+            keyboard=_create_vpn_keyboard(texts, owned, max_bots),
+            parse_mode='HTML',
+        )
+        await callback.answer()
+    except Exception as error:
+        logger.debug('CUSTOM-UI: ошибка рендера экрана create_vpn', error=error)
+        await callback.answer()
 
 
 def register_handlers(dp: Dispatcher):
