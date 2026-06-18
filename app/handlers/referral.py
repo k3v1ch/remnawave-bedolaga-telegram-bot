@@ -2,6 +2,7 @@ import hashlib
 import json
 from html import escape as html_escape
 from pathlib import Path
+from urllib.parse import urlencode
 
 import qrcode
 import structlog
@@ -47,7 +48,7 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
 
     bot_username = (await callback.bot.get_me()).username
     bot_referral_link = settings.get_bot_referral_link(db_user.referral_code, bot_username)
-    cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
+    cabinet_referral_link = _cabinet_referral_link(db_user)
 
     referral_text = (
         texts.t('REFERRAL_PROGRAM_TITLE', '👥 <b>Реферальная программа</b>')
@@ -257,47 +258,84 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
     await callback.answer()
 
 
+def _cabinet_referral_link(db_user: User) -> str | None:
+    """Ссылка на кабинет (наш сайт) с рефкодом. В white-label клонах — None, чтобы не
+    светить наш бренд клиентам ресселера (ни ссылкой, ни QR)."""
+    from app.utils.clone_context import is_clone_context
+
+    if is_clone_context() or not db_user.referral_code:
+        return None
+    return settings.get_cabinet_referral_link(db_user.referral_code)
+
+
 async def show_referral_qr(
     callback: types.CallbackQuery,
     db_user: User,
 ):
+    """Экран выбора QR: Telegram-ссылка с рефкодом или ссылка на сайт/кабинет."""
     texts = get_texts(db_user.language)
 
     if not db_user.referral_code:
         await callback.answer(texts.t('REFERRAL_CODE_NOT_ASSIGNED', 'Реферальный код не назначен'), show_alert=True)
         return
 
+    has_cabinet = _cabinet_referral_link(db_user) is not None
+
+    rows = [
+        [
+            types.InlineKeyboardButton(
+                text=texts.t('REFERRAL_QR_CHOICE_TG', '🤖 QR Telegram-бота'), callback_data='referral_qr_tg'
+            )
+        ]
+    ]
+    if has_cabinet:
+        rows.append(
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('REFERRAL_QR_CHOICE_SITE', '🌐 QR сайта'), callback_data='referral_qr_site'
+                )
+            ]
+        )
+    rows.append([types.InlineKeyboardButton(text=texts.BACK, callback_data='referral_create_invite')])
+
+    if has_cabinet:
+        caption = texts.t(
+            'REFERRAL_QR_CHOICE',
+            '📱 <b>Показать QR-код</b>\n\n'
+            'Какую ссылку зашить в QR?\n'
+            '🤖 <b>Telegram</b> — ссылка на бота с вашим рефкодом\n'
+            '🌐 <b>Сайт</b> — ссылка на личный кабинет с рефкодом',
+        )
+    else:
+        caption = texts.t(
+            'REFERRAL_QR_CHOICE_TG_ONLY',
+            '📱 <b>Показать QR-код</b>\n\nQR с ссылкой на бота и вашим рефкодом.',
+        )
+
+    await edit_or_answer_photo(
+        callback,
+        caption,
+        types.InlineKeyboardMarkup(inline_keyboard=rows),
+    )
     await callback.answer()
 
-    bot_username = (await callback.bot.get_me()).username
-    bot_referral_link = settings.get_bot_referral_link(db_user.referral_code, bot_username)
 
+async def _send_referral_qr(callback: types.CallbackQuery, db_user: User, link: str, caption: str):
+    """Сгенерировать (с кэшем на диск) и показать QR конкретной ссылки. Назад — к выбору."""
     qr_dir = Path('data') / 'referral_qr'
     qr_dir.mkdir(parents=True, exist_ok=True)
 
-    link_hash = hashlib.md5(bot_referral_link.encode()).hexdigest()[:8]
+    link_hash = hashlib.md5(link.encode()).hexdigest()[:8]
     file_path = qr_dir / f'{db_user.id}_{link_hash}.png'
     if not file_path.exists():
-        img = qrcode.make(bot_referral_link)
-        img.save(file_path)
+        qrcode.make(link).save(file_path)
 
     photo = FSInputFile(file_path)
     keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[[types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_referrals')]]
+        inline_keyboard=[
+            [types.InlineKeyboardButton(text=get_texts(db_user.language).BACK, callback_data='referral_show_qr')]
+        ]
     )
-
-    caption = texts.t(
-        'REFERRAL_QR_BOT_LINK',
-        '🤖 Ссылка на бота:\n{link}',
-    ).format(link=bot_referral_link)
-
-    cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
-    if cabinet_referral_link:
-        caption += '\n\n' + texts.t(
-            'REFERRAL_QR_CABINET_LINK',
-            '🌐 Ссылка на кабинет:\n{link}',
-        ).format(link=cabinet_referral_link)
-
     try:
         await callback.message.edit_media(
             types.InputMediaPhoto(media=photo, caption=caption),
@@ -305,11 +343,30 @@ async def show_referral_qr(
         )
     except TelegramBadRequest:
         await callback.message.delete()
-        await callback.message.answer_photo(
-            photo,
-            caption=caption,
-            reply_markup=keyboard,
-        )
+        await callback.message.answer_photo(photo, caption=caption, reply_markup=keyboard)
+
+
+async def show_referral_qr_tg(callback: types.CallbackQuery, db_user: User):
+    texts = get_texts(db_user.language)
+    if not db_user.referral_code:
+        await callback.answer(texts.t('REFERRAL_CODE_NOT_ASSIGNED', 'Реферальный код не назначен'), show_alert=True)
+        return
+    await callback.answer()
+    bot_username = (await callback.bot.get_me()).username
+    link = settings.get_bot_referral_link(db_user.referral_code, bot_username)
+    caption = texts.t('REFERRAL_QR_BOT_LINK', '🤖 Ссылка на бота:\n{link}').format(link=link)
+    await _send_referral_qr(callback, db_user, link, caption)
+
+
+async def show_referral_qr_site(callback: types.CallbackQuery, db_user: User):
+    texts = get_texts(db_user.language)
+    link = _cabinet_referral_link(db_user)
+    if not link:
+        await callback.answer(texts.t('REFERRAL_QR_SITE_UNAVAILABLE', 'Ссылка на сайт недоступна'), show_alert=True)
+        return
+    await callback.answer()
+    caption = texts.t('REFERRAL_QR_CABINET_LINK', '🌐 Ссылка на кабинет:\n{link}').format(link=link)
+    await _send_referral_qr(callback, db_user, link, caption)
 
 
 async def show_detailed_referral_list(callback: types.CallbackQuery, db_user: User, db: AsyncSession, page: int = 1):
@@ -516,7 +573,7 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
 
     bot_username = (await callback.bot.get_me()).username
     bot_referral_link = settings.get_bot_referral_link(db_user.referral_code, bot_username)
-    cabinet_referral_link = settings.get_cabinet_referral_link(db_user.referral_code)
+    cabinet_referral_link = _cabinet_referral_link(db_user)
 
     bonus_block = ''
     if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
@@ -552,8 +609,19 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
         cabinet_block=cabinet_block,
     )
 
+    # Кнопка «Поделиться» — нативный шэр Telegram: тап → выбор чата → текст уже
+    # подставлен (ссылку Telegram добавит из url). Никакого копирования/вставки.
+    share_text = invite_template.format(bonus_block=bonus_block, link='', cabinet_block='').strip()
+    share_url = 'https://t.me/share/url?' + urlencode({'url': bot_referral_link, 'text': share_text})
+
     keyboard = types.InlineKeyboardMarkup(
         inline_keyboard=[
+            [types.InlineKeyboardButton(text=texts.t('REFERRAL_SHARE_BUTTON', '📤 Поделиться'), url=share_url)],
+            [
+                types.InlineKeyboardButton(
+                    text=texts.t('SHOW_QR_BUTTON', '📱 Показать QR код'), callback_data='referral_show_qr'
+                )
+            ],
             [types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_referrals')],
         ]
     )
@@ -565,7 +633,7 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
             + '\n\n'
             + texts.t(
                 'REFERRAL_INVITE_CREATED_INSTRUCTION',
-                'Нажмите на текст ниже, чтобы скопировать:',
+                'Нажмите «📤 Поделиться» и выберите, куда отправить. Или скопируйте текст ниже:',
             )
             + '\n\n'
             f'<blockquote>{invite_html}</blockquote>'
@@ -930,6 +998,8 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(create_invite_message, F.data == 'referral_create_invite')
 
     dp.callback_query.register(show_referral_qr, F.data == 'referral_show_qr')
+    dp.callback_query.register(show_referral_qr_tg, F.data == 'referral_qr_tg')
+    dp.callback_query.register(show_referral_qr_site, F.data == 'referral_qr_site')
 
     dp.callback_query.register(show_detailed_referral_list, F.data == 'referral_list')
 

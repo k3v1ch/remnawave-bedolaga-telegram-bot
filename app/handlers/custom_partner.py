@@ -29,10 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import PartnerStatus, User
 from app.services.admin_notification_service import AdminNotificationService
-from app.utils.clone_context import is_clone_context
 from app.services.partner_application_service import partner_application_service
 from app.states import PartnerApplicationStates
 from app.utils.decorators import error_handler
+from app.utils.photo_message import edit_or_answer_photo
 
 
 logger = structlog.get_logger(__name__)
@@ -75,14 +75,63 @@ def _back_kb() -> InlineKeyboardMarkup:
 
 
 @error_handler
+async def show_partner_info(
+    callback: types.CallbackQuery, db_user: User, db: AsyncSession, clone_bot=None
+):
+    """Экран «Стать партнёром» (как в кабинете) — статус-зависимый, доступен везде."""
+    status = db_user.partner_status
+
+    if status == PartnerStatus.APPROVED.value:
+        pct = db_user.referral_commission_percent or _DEFAULT_PERCENT
+        text = (
+            '🤝 <b>Партнёрство</b>\n\n'
+            '✅ Вы партнёр.\n'
+            f'Ваша комиссия: <b>{pct}%</b>\n\n'
+            'Запросить вывод заработка можно в разделе «ЗАРАБОТАТЬ».'
+        )
+        rows = [[InlineKeyboardButton(text='‹ Назад', callback_data='menu_referrals')]]
+    elif status == PartnerStatus.PENDING.value:
+        text = (
+            '⏳ <b>Заявка на рассмотрении</b>\n\n'
+            'Ваша заявка на партнёрство рассматривается. Мы уведомим вас, когда будет принято решение.'
+        )
+        rows = [[InlineKeyboardButton(text='‹ Назад', callback_data='menu_referrals')]]
+    elif status == PartnerStatus.REJECTED.value:
+        text = (
+            '🤝 <b>Партнёрство</b>\n\n'
+            'Предыдущая заявка отклонена. Вы можете подать её заново.'
+        )
+        rows = [
+            [InlineKeyboardButton(text='📝 Подать заново', callback_data='partner_apply', style='primary')],
+            [InlineKeyboardButton(text='‹ Назад', callback_data='menu_referrals')],
+        ]
+    else:
+        text = (
+            '🤝 <b>Стать партнёром</b>\n\n'
+            'Подайте заявку на партнёрскую программу, чтобы получить повышенную комиссию '
+            'и возможность вывода заработка.'
+        )
+        rows = [
+            [InlineKeyboardButton(text='📝 Подать заявку', callback_data='partner_apply', style='primary')],
+            [InlineKeyboardButton(text='‹ Назад', callback_data='menu_referrals')],
+        ]
+
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=text,
+        keyboard=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode='HTML',
+    )
+    await callback.answer()
+
+
+@error_handler
 async def start_application(
     callback: types.CallbackQuery, db_user: User, state: FSMContext, db: AsyncSession, clone_bot=None
 ):
-    """«📝 Подать заявку» → старт анкеты (с защитой от повторной/одобренной заявки)."""
-    # Партнёрка — наша программа; из white-label клонов недоступна.
-    if is_clone_context():
-        await callback.answer('Недоступно', show_alert=True)
-        return
+    """«📝 Подать заявку» → старт анкеты (с защитой от повторной/одобренной заявки).
+
+    Партнёрка бренд-нейтральна (как в кабинете), поэтому доступна и в клонах."""
     if db_user.partner_status == PartnerStatus.APPROVED.value:
         await callback.answer('Вы уже являетесь партнёром ✅', show_alert=True)
         return
@@ -312,7 +361,7 @@ async def confirm_application(
     await callback.message.edit_text(
         '✅ <b>Заявка отправлена!</b>\n\n'
         'Мы рассмотрим её и сообщим о решении. После одобрения вам станет доступен '
-        'повышенный процент и вывод средств в разделе «Реферальная программа».',
+        'повышенный процент и вывод средств в разделе «ЗАРАБОТАТЬ».',
         reply_markup=_back_kb(),
     )
     await callback.answer('Заявка отправлена')
@@ -328,6 +377,7 @@ async def cancel_application(
 
 
 def register_handlers(dp: Dispatcher):
+    dp.callback_query.register(show_partner_info, F.data == 'partner_info')
     dp.callback_query.register(start_application, F.data == 'partner_apply')
     dp.callback_query.register(confirm_application, F.data == 'partner_apply_confirm')
     dp.callback_query.register(cancel_application, F.data == 'partner_apply_cancel')
