@@ -297,3 +297,16 @@ class ReferralWithdrawalStates(StatesGroup):
     waiting_for_amount = State()
     waiting_for_payment_details = State()
     confirming = State()
+
+
+class PartnerApplicationStates(StatesGroup):
+    """Заявка на партнёрство из бота («Платим за TikTok»). Поля 1:1 с
+    partner_application_service.submit_application / кабинетной валидацией."""
+
+    waiting_for_company_name = State()
+    waiting_for_channel = State()
+    waiting_for_website = State()
+    waiting_for_expected_referrals = State()
+    waiting_for_desired_percent = State()
+    waiting_for_description = State()
+    confirming = State()

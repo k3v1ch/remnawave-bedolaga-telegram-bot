@@ -2305,6 +2305,12 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
     # CUSTOM-UI: рефералка по эталону SCR-REF (ВЕРНО VPN). Кнопки фич без бэкенда —
     # заглушки custom_soon:*; рабочие инструменты бедолаги (QR/список/аналитика/вывод)
     # сохранены ниже как «расширение» (в макете их нет).
+    from app.utils.clone_context import is_clone_context
+
+    # Промо-акции «7 дней за сторис/пост» и «Платим за TikTok» завязаны на наш бренд
+    # (ВЕРНО VPN, vernovpn.ru) — в white-label клонах их не показываем, чтобы не светить
+    # наш бренд клиентам ресселера. «Создать свой VPN» остаётся (нужно ресселерам).
+    is_clone = is_clone_context()
     keyboard = [
         [
             InlineKeyboardButton(
@@ -2313,32 +2319,44 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
                 style='primary',
             )
         ],
-        [
-            InlineKeyboardButton(
-                text=texts.t('CUSTOM_REF_STORIES_BUTTON', '✨ 7 дней за сторис ✨'),
-                callback_data='kmock_ref_stories',
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t('CUSTOM_REF_POST_BUTTON', '✨ 7 дней за пост ✨'),
-                callback_data='kmock_ref_post',
-            )
-        ],
+    ]
+    if not is_clone:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CUSTOM_REF_STORIES_BUTTON', '✨ 7 дней за сторис ✨'),
+                    callback_data='kmock_ref_stories',
+                )
+            ]
+        )
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CUSTOM_REF_POST_BUTTON', '✨ 7 дней за пост ✨'),
+                    callback_data='kmock_ref_post',
+                )
+            ]
+        )
+    keyboard.append(
         [
             InlineKeyboardButton(
                 text=texts.t('CUSTOM_REF_CREATE_VPN_BUTTON', '🤖 Создать свой VPN'),
                 callback_data='kmock_create_vpn',
                 style='primary',
             )
-        ],
-        [
-            InlineKeyboardButton(
-                text=texts.t('CUSTOM_REF_TIKTOK_BUTTON', '🔥 Платим за TikTok'),
-                callback_data='kmock_tiktok',
-                style='primary',
-            )
-        ],
+        ]
+    )
+    if not is_clone:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CUSTOM_REF_TIKTOK_BUTTON', '🔥 Платим за TikTok'),
+                    callback_data='kmock_tiktok',
+                    style='primary',
+                )
+            ]
+        )
+    keyboard += [
         [InlineKeyboardButton(text=texts.t('SHOW_QR_BUTTON', '📱 Показать QR код'), callback_data='referral_show_qr')],
         [
             InlineKeyboardButton(

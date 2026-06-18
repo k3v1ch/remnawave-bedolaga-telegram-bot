@@ -19,6 +19,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.database.models import User
 from app.localization.texts import get_texts
+from app.utils.clone_context import is_clone_context
 from app.utils.photo_message import edit_or_answer_photo
 
 
@@ -99,6 +100,10 @@ def _bonus_screen_keyboard(texts) -> InlineKeyboardMarkup:
 
 
 async def _render_bonus_screen(callback: types.CallbackQuery, db_user: User, key: str, default_text: str):
+    # Бренд-акции (ВЕРНО VPN) в клонах не показываем (white-label).
+    if is_clone_context():
+        await callback.answer()
+        return
     texts = get_texts(db_user.language)
     raw = texts.t(key, default_text)
     text = raw.replace('{bot_ref_link}', CUSTOM_REF_LINK_HINT)
@@ -205,7 +210,7 @@ def _tiktok_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_RULES_BUTTON', '📋 Условия и правила'), callback_data='kmock_tiktok_rules')],
-            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='kmock_alert:apply', style='primary')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='partner_apply', style='primary')],
             [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
         ]
     )
@@ -214,7 +219,7 @@ def _tiktok_keyboard(texts) -> InlineKeyboardMarkup:
 def _tiktok_rules_keyboard(texts) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='kmock_alert:apply', style='primary')],
+            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='partner_apply', style='primary')],
             [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='kmock_tiktok')],
         ]
     )
@@ -237,6 +242,10 @@ def _create_vpn_keyboard(texts, owned: int = 0, max_bots: int = 0) -> InlineKeyb
 
 
 async def _render_static(callback: types.CallbackQuery, db_user: User, key: str, default_text: str, keyboard_fn):
+    # SCR-TIKTOK / правила — наш бренд; в клонах скрыто (white-label).
+    if is_clone_context():
+        await callback.answer()
+        return
     texts = get_texts(db_user.language)
     try:
         await edit_or_answer_photo(

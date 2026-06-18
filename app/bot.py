@@ -69,6 +69,7 @@ from app.handlers.custom_mock import register_handlers as register_custom_mock_h
 from app.handlers.custom_profile import register_handlers as register_custom_profile_handlers  # CUSTOM-UI
 from app.handlers.custom_gift import register_handlers as register_custom_gift_handlers  # CUSTOM-UI
 from app.handlers.custom_reseller import register_handlers as register_custom_reseller_handlers  # CUSTOM-UI
+from app.handlers.custom_partner import register_handlers as register_custom_partner_handlers  # CUSTOM-UI
 from app.handlers.stars_payments import register_stars_handlers
 from app.middlewares.auth import AuthMiddleware
 from app.middlewares.blacklist import BlacklistMiddleware
@@ -162,6 +163,7 @@ def build_shop_dispatcher(storage) -> Dispatcher:
     register_custom_profile_handlers(dp)  # CUSTOM-UI: профиль в боте (email/пароль для сайта)
     register_custom_gift_handlers(dp)  # CUSTOM-UI: подарки (GuestPurchase-ссылка, оплата с баланса)
     register_custom_reseller_handlers(dp)  # CUSTOM-UI: панель «Мои боты» (управление клонами в боте)
+    register_custom_partner_handlers(dp)  # CUSTOM-UI: заявка на партнёрку «Платим за TikTok»
     subscription.register_handlers(dp)
     balance.register_balance_handlers(dp)
     promocode.register_handlers(dp)
