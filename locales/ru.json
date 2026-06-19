@@ -1478,7 +1478,7 @@
   "SUBSCRIPTION_HAPP_OPEN_HINT": "💡 Если ссылка не открывается автоматически, скопируйте её вручную:",
   "SUBSCRIPTION_HAPP_OPEN_LINK": "<a href=\"{subscription_link}\">🔓 Открыть ссылку в Happ</a>",
   "SUBSCRIPTION_HAPP_OPEN_TITLE": "🔗 <b>Подключение через Happ</b>",
-  "SUBSCRIPTION_IMPORT_INSTRUCTION_PROMPT": "📱 Нажмите кнопку ниже, чтобы получить инструкцию по настройке VPN на вашем устройстве",
+  "SUBSCRIPTION_IMPORT_INSTRUCTION_PROMPT": "📱 Откройте ссылку — в ней уже есть инструкция по настройке VPN на вашем устройстве.",
   "SUBSCRIPTION_IMPORT_LINK_SECTION": "🔗 <b>Ваша ссылка для импорта в VPN приложение:</b>\n<code>{subscription_url}</code>",
   "SUBSCRIPTION_INFO": "✅ Подписка: {status}\n\nТип: {type}\nОсталось: {days_left} дней (до {end_date})\nУстройств: {devices_used}/{devices_limit}\n\nТрафик: {traffic_used} / {traffic_limit}\nСерверы: {countries_count}\nАвтоплатеж: {autopay_status}",
   "SUBSCRIPTION_LINK_GENERATING_NOTICE": "{purchase_text}\n\nСсылка генерируется, перейдите в раздел 'Моя подписка' через несколько секунд.",

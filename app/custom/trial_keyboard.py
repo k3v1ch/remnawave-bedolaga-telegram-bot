@@ -12,20 +12,15 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 def apply_trial_activated_styling(markup: InlineKeyboardMarkup, texts) -> InlineKeyboardMarkup:
-    """Делает первую кнопку (Подключиться) акцентной и добавляет [Инструкция](url)."""
+    """Делает первую кнопку (Подключиться) акцентной.
+
+    Кнопку «Инструкция» больше не добавляем: инструкция по настройке уже открывается
+    по самой ссылке подписки, отдельная кнопка дублировала её и была бесполезной.
+    """
     rows = [list(row) for row in (markup.inline_keyboard or [])]
     if not rows:
         return markup
 
     rows[0] = [button.model_copy(update={'style': 'primary'}) for button in rows[0]]
-
-    instructions_button = InlineKeyboardButton(
-        text=texts.t('CUSTOM_MAIN_MENU_INSTRUCTIONS_BUTTON', 'Инструкция'),
-        url=texts.t('CUSTOM_INSTRUCTIONS_URL', 'https://telegra.ph/verno-vpn-instructions'),
-    )
-    if len(rows[0]) == 1:
-        rows[0].append(instructions_button)
-    else:
-        rows.insert(1, [instructions_button])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)
