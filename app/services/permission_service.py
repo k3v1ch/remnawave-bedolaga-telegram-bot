@@ -60,6 +60,7 @@ PERMISSION_REGISTRY: dict[str, list[str]] = {
     'promo_offers': ['read', 'create', 'edit', 'send'],
     'campaigns': ['read', 'create', 'edit', 'delete', 'stats'],
     'partners': ['read', 'edit', 'approve', 'revoke', 'settings'],
+    'tiktok': ['read', 'approve', 'edit', 'revoke'],
     'withdrawals': ['read', 'approve', 'reject'],
     'payments': ['read', 'edit', 'export'],
     'payment_methods': ['read', 'edit'],

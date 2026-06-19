@@ -38,6 +38,7 @@ from .admin_settings import router as admin_settings_router
 from .admin_stats import router as admin_stats_router
 from .admin_tariffs import router as admin_tariffs_router
 from .admin_tickets import router as admin_tickets_router
+from .admin_tiktok import router as admin_tiktok_router
 from .admin_traffic import router as admin_traffic_router
 from .admin_updates import router as admin_updates_router
 from .admin_users import router as admin_users_router
@@ -56,6 +57,7 @@ from .news import router as news_router
 from .notifications import router as notifications_router
 from .oauth import router as oauth_router
 from .partner_application import router as partner_application_router
+from .tiktok_application import router as tiktok_application_router
 from .polls import router as polls_router
 from .promo import router as promo_router
 from .promocode import router as promocode_router
@@ -95,6 +97,7 @@ router.include_router(referral_router)
 router.include_router(apple_iap_router)
 
 router.include_router(partner_application_router)
+router.include_router(tiktok_application_router)
 router.include_router(withdrawal_router)
 # Notifications router MUST be before tickets router to avoid route conflict
 router.include_router(ticket_notifications_router)
@@ -133,6 +136,7 @@ router.include_router(admin_promocodes_router)
 router.include_router(admin_promo_groups_router)
 router.include_router(admin_campaigns_router)
 router.include_router(admin_partners_router)
+router.include_router(admin_tiktok_router)
 router.include_router(admin_clone_bots_router)
 router.include_router(admin_withdrawals_router)
 router.include_router(admin_users_router)

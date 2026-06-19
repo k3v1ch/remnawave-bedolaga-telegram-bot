@@ -310,3 +310,18 @@ class PartnerApplicationStates(StatesGroup):
     waiting_for_desired_percent = State()
     waiting_for_description = State()
     confirming = State()
+
+
+class TikTokApplicationStates(StatesGroup):
+    """Заявка в TikTok-программу из бота (отдельный трек, без реф-кода/комиссии).
+
+    Поля 1:1 с tiktok_application_service.submit_application / кабинетной схемой
+    ``TikTokApplicationRequest``."""
+
+    waiting_for_display_name = State()
+    waiting_for_tiktok_url = State()
+    waiting_for_other_platforms = State()
+    waiting_for_audience_size = State()
+    waiting_for_content_topic = State()
+    waiting_for_description = State()
+    confirming = State()

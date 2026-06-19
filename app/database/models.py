@@ -1874,6 +1874,20 @@ class PartnerStatus(Enum):
     REJECTED = 'rejected'  # Заявка отклонена
 
 
+class TikTokApplicationStatus(Enum):
+    """Статусы заявки в TikTok-программу (отдельно от партнёрки).
+
+    TikTok-программа НЕ даёт реф-код, комиссию и вывод средств — это отдельный
+    трек для авторов коротких видео. Заработок проставляется вручную админом
+    (журнал начислений ``TikTokEarning``), результаты автор шлёт в поддержку.
+    """
+
+    NONE = 'none'  # Не подавал заявку
+    PENDING = 'pending'  # Заявка на рассмотрении
+    APPROVED = 'approved'  # Автор одобрен
+    REJECTED = 'rejected'  # Заявка отклонена
+
+
 class CloneBotStatus(Enum):
     """Статусы white-label клон-бота."""
 
@@ -2046,6 +2060,11 @@ class User(Base):
 
     # Партнёрская система
     partner_status = Column(String(20), default=PartnerStatus.NONE.value, nullable=False, index=True)
+
+    # TikTok-программа (отдельный трек, без реф-кода/комиссии/вывода)
+    tiktok_status = Column(
+        String(20), default=TikTokApplicationStatus.NONE.value, nullable=False, index=True
+    )
 
     # White-label: какой клон-бот привёл этого пользователя (атрибуция для CRM). NULL = основной бот.
     clone_bot_id = Column(Integer, ForeignKey('clone_bots.id', ondelete='SET NULL'), nullable=True, index=True)
@@ -2625,6 +2644,62 @@ class PartnerApplication(Base):
 
     user = relationship('User', foreign_keys=[user_id], backref='partner_applications')
     admin = relationship('User', foreign_keys=[processed_by])
+
+
+class TikTokApplication(Base):
+    """Заявка на участие в TikTok-программе (отдельно от партнёрки).
+
+    В отличие от :class:`PartnerApplication` не выдаёт реф-код/комиссию/вывод —
+    после одобрения автор шлёт результаты в поддержку, а заработок проставляется
+    вручную через журнал :class:`TikTokEarning`.
+    """
+
+    __tablename__ = 'tiktok_applications'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    display_name = Column(String(255), nullable=True)
+    tiktok_url = Column(String(500), nullable=True)
+    other_platforms = Column(String(500), nullable=True)
+    audience_size = Column(Integer, nullable=True)
+    content_topic = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)
+
+    status = Column(String(20), default=TikTokApplicationStatus.PENDING.value, nullable=False, index=True)
+
+    # Обработка админом
+    admin_comment = Column(Text, nullable=True)
+    processed_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    processed_at = Column(AwareDateTime(), nullable=True)
+
+    created_at = Column(AwareDateTime(), default=func.now())
+    updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
+
+    user = relationship('User', foreign_keys=[user_id], backref='tiktok_applications')
+    admin = relationship('User', foreign_keys=[processed_by])
+
+
+class TikTokEarning(Base):
+    """Запись журнала начислений TikTok-автору (проставляется вручную админом)."""
+
+    __tablename__ = 'tiktok_earnings'
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    amount_kopeks = Column(Integer, nullable=False, default=0)
+    comment = Column(Text, nullable=True)
+
+    created_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    created_at = Column(AwareDateTime(), default=func.now())
+
+    user = relationship('User', foreign_keys=[user_id], backref='tiktok_earnings')
+    admin = relationship('User', foreign_keys=[created_by])
+
+    @property
+    def amount_rubles(self) -> float:
+        return self.amount_kopeks / 100
 
 
 class ReferralContest(Base):

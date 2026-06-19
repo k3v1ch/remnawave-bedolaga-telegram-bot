@@ -13,17 +13,29 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import structlog
 from aiogram import Dispatcher, F, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.database.models import User
+from app.handlers.custom_tiktok import build_tiktok_cta
 from app.localization.texts import get_texts
 from app.utils.clone_context import is_clone_context
 from app.utils.photo_message import edit_or_answer_photo
+from app.utils.premium_emoji import build_caption_entities
 
 
 logger = structlog.get_logger(__name__)
+
+# Корень проекта (в контейнере — /app). Картинки-баннеры лежат в корне репозитория.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Файлы, которые бот отдаёт по кнопке «Скачать изображение» на экранах сторис/пост.
+_BONUS_IMAGES = {'stories': 'storis.png', 'post': 'post.png'}
+
+# Профиль поддержки для бонус-акций (захардкожен по требованию владельца).
+_BONUS_SUPPORT_URL = 'https://t.me/VernoVPNsupport'
 
 
 CUSTOM_REF_STORIES_SCREEN_DEFAULT = (
@@ -65,28 +77,26 @@ CUSTOM_DEMO_ALERT_DEFAULT = '🔧 Демо-режим: действие не в�
 CUSTOM_REF_LINK_HINT = '(ваша ссылка — в разделе «Реферальная программа»)'
 
 
-def _bonus_screen_keyboard(texts) -> InlineKeyboardMarkup:
-    """Клавиатура SCR-REF-STORIES / SCR-REF-POST (kb_ref_stories эталона)."""
+def _bonus_screen_keyboard(texts, image_kind: str) -> InlineKeyboardMarkup:
+    """Клавиатура SCR-REF-STORIES / SCR-REF-POST.
+
+    «Получить 7 дней» ведёт прямо в поддержку (URL), «Скачать изображение» отдаёт
+    нужный баннер (storis.png / post.png). Кнопка «Написать в поддержку» убрана.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text=texts.t('CUSTOM_REF_GET7_BUTTON', 'Получить 7 дней'),
-                    callback_data='kmock_alert:bonus',
+                    url=_BONUS_SUPPORT_URL,
                     style='success',
                 )
             ],
             [
                 InlineKeyboardButton(
                     text=texts.t('CUSTOM_REF_DOWNLOAD_IMAGE_BUTTON', 'Скачать изображение'),
-                    callback_data='kmock_alert:image',
+                    callback_data=f'kmock_img:{image_kind}',
                     style='success',
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=texts.t('CUSTOM_REF_SUPPORT_BUTTON', 'Написать в поддержку'),
-                    callback_data='menu_support',
                 )
             ],
             [
@@ -99,7 +109,9 @@ def _bonus_screen_keyboard(texts) -> InlineKeyboardMarkup:
     )
 
 
-async def _render_bonus_screen(callback: types.CallbackQuery, db_user: User, key: str, default_text: str):
+async def _render_bonus_screen(
+    callback: types.CallbackQuery, db_user: User, key: str, default_text: str, image_kind: str
+):
     # Бренд-акции (ВЕРНО VPN) в клонах не показываем (white-label).
     if is_clone_context():
         await callback.answer()
@@ -111,8 +123,9 @@ async def _render_bonus_screen(callback: types.CallbackQuery, db_user: User, key
         await edit_or_answer_photo(
             callback=callback,
             caption=text,
-            keyboard=_bonus_screen_keyboard(texts),
+            keyboard=_bonus_screen_keyboard(texts, image_kind),
             parse_mode='HTML',
+            caption_entities=build_caption_entities(text),
         )
         await callback.answer()
     except Exception as error:
@@ -121,11 +134,39 @@ async def _render_bonus_screen(callback: types.CallbackQuery, db_user: User, key
 
 
 async def show_ref_stories(callback: types.CallbackQuery, db_user: User):
-    await _render_bonus_screen(callback, db_user, 'CUSTOM_REF_STORIES_SCREEN', CUSTOM_REF_STORIES_SCREEN_DEFAULT)
+    await _render_bonus_screen(
+        callback, db_user, 'CUSTOM_REF_STORIES_SCREEN', CUSTOM_REF_STORIES_SCREEN_DEFAULT, 'stories'
+    )
 
 
 async def show_ref_post(callback: types.CallbackQuery, db_user: User):
-    await _render_bonus_screen(callback, db_user, 'CUSTOM_REF_POST_SCREEN', CUSTOM_REF_POST_SCREEN_DEFAULT)
+    await _render_bonus_screen(
+        callback, db_user, 'CUSTOM_REF_POST_SCREEN', CUSTOM_REF_POST_SCREEN_DEFAULT, 'post'
+    )
+
+
+async def send_bonus_image(callback: types.CallbackQuery, db_user: User):
+    """«Скачать изображение» → отправляет нужный баннер документом (без сжатия)."""
+    if is_clone_context():
+        await callback.answer()
+        return
+    data = callback.data or ''
+    kind = data.split(':', 1)[1] if ':' in data else ''
+    filename = _BONUS_IMAGES.get(kind)
+    if not filename:
+        await callback.answer()
+        return
+    path = _PROJECT_ROOT / filename
+    if not path.exists():
+        logger.warning('CUSTOM-UI: баннер не найден', path=str(path))
+        await callback.answer('Изображение временно недоступно', show_alert=True)
+        return
+    try:
+        await callback.message.answer_document(FSInputFile(str(path)))
+        await callback.answer()
+    except Exception as error:
+        logger.debug('CUSTOM-UI: ошибка отправки баннера', kind=kind, error=error)
+        await callback.answer('Не удалось отправить изображение', show_alert=True)
 
 
 async def show_demo_alert(callback: types.CallbackQuery, db_user: User):
@@ -170,8 +211,6 @@ CUSTOM_TIKTOK_SCREEN_DEFAULT = (
     '├ от 500 000 просмотров — 1 500₽\n'
     '└ от 1 000 000 просмотров — 3 000₽\n'
     '\n'
-    '➕ Бонус: 15% от оплат привлечённых клиентов первые 12 месяцев\n'
-    '\n'
     '📌 Площадки: TikTok · Instagram Reels · YouTube Shorts'
 )
 
@@ -189,8 +228,8 @@ CUSTOM_TIKTOK_RULES_SCREEN_DEFAULT = (
     '\n'
     '💸 Выплаты:\n'
     '├ Вознаграждение за просмотры — по сетке выше\n'
-    '├ 15% от оплат клиентов по Вашей ссылке\n'
-    '└ Процент может пересматриваться раз в полгода'
+    '├ После одобрения заявки результаты роликов присылайте в поддержку\n'
+    '└ Сетка может пересматриваться раз в полгода'
 )
 
 CUSTOM_CREATE_VPN_SCREEN_DEFAULT = (
@@ -206,20 +245,20 @@ CUSTOM_CREATE_VPN_SCREEN_DEFAULT = (
 )
 
 
-def _tiktok_keyboard(texts) -> InlineKeyboardMarkup:
+def _tiktok_keyboard(texts, db_user: User) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_RULES_BUTTON', '📋 Условия и правила'), callback_data='kmock_tiktok_rules')],
-            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='partner_apply', style='primary')],
+            [build_tiktok_cta(db_user, texts)],
             [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='menu_referrals')],
         ]
     )
 
 
-def _tiktok_rules_keyboard(texts) -> InlineKeyboardMarkup:
+def _tiktok_rules_keyboard(texts, db_user: User) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=texts.t('CUSTOM_TIKTOK_APPLY_BUTTON', '📝 Подать заявку'), callback_data='partner_apply', style='primary')],
+            [build_tiktok_cta(db_user, texts)],
             [InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='kmock_tiktok')],
         ]
     )
@@ -247,12 +286,14 @@ async def _render_static(callback: types.CallbackQuery, db_user: User, key: str,
         await callback.answer()
         return
     texts = get_texts(db_user.language)
+    caption = texts.t(key, default_text)
     try:
         await edit_or_answer_photo(
             callback=callback,
-            caption=texts.t(key, default_text),
-            keyboard=keyboard_fn(texts),
+            caption=caption,
+            keyboard=keyboard_fn(texts, db_user),
             parse_mode='HTML',
+            caption_entities=build_caption_entities(caption),
         )
         await callback.answer()
     except Exception as error:
@@ -275,12 +316,14 @@ async def show_create_vpn(callback: types.CallbackQuery, db_user: User, db):
     owned = await count_for_owner(db, db_user.id)
     max_bots = settings.CLONE_MAX_PER_USER
     texts = get_texts(db_user.language)
+    caption = texts.t('CUSTOM_CREATE_VPN_SCREEN', CUSTOM_CREATE_VPN_SCREEN_DEFAULT)
     try:
         await edit_or_answer_photo(
             callback=callback,
-            caption=texts.t('CUSTOM_CREATE_VPN_SCREEN', CUSTOM_CREATE_VPN_SCREEN_DEFAULT),
+            caption=caption,
             keyboard=_create_vpn_keyboard(texts, owned, max_bots),
             parse_mode='HTML',
+            caption_entities=build_caption_entities(caption),
         )
         await callback.answer()
     except Exception as error:
@@ -291,6 +334,7 @@ async def show_create_vpn(callback: types.CallbackQuery, db_user: User, db):
 def register_handlers(dp: Dispatcher):
     dp.callback_query.register(show_ref_stories, F.data == 'kmock_ref_stories')
     dp.callback_query.register(show_ref_post, F.data == 'kmock_ref_post')
+    dp.callback_query.register(send_bonus_image, F.data.startswith('kmock_img:'))
     dp.callback_query.register(show_tiktok, F.data == 'kmock_tiktok')
     dp.callback_query.register(show_tiktok_rules, F.data == 'kmock_tiktok_rules')
     dp.callback_query.register(show_create_vpn, F.data == 'kmock_create_vpn')

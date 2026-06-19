@@ -2092,6 +2092,60 @@ class AdminNotificationService:
             logger.error('Ошибка отправки уведомления о заявке на партнёрку', error=e)
             return False
 
+    async def send_tiktok_application_notification(
+        self,
+        user: User,
+        application_data: dict[str, Any],
+    ) -> bool:
+        """Уведомление о новой заявке в TikTok-программу."""
+        if not self._is_enabled():
+            return False
+
+        try:
+            user_display = self._get_user_display(user)
+            user_id_display = self._get_user_identifier_display(user)
+
+            message_lines = [
+                '🎬 <b>ЗАЯВКА В TIKTOK-ПРОГРАММУ</b>',
+                '',
+                f'👤 {user_display} ({user_id_display})',
+            ]
+
+            username = getattr(user, 'username', None)
+            if username:
+                message_lines.append(f'📱 @{html.escape(username)}')
+
+            message_lines.append('')
+
+            if application_data.get('display_name'):
+                message_lines.append(f'🙂 Имя/ник: {html.escape(str(application_data["display_name"]))}')
+            if application_data.get('tiktok_url'):
+                message_lines.append(f'🎬 TikTok: {html.escape(str(application_data["tiktok_url"]))}')
+            if application_data.get('other_platforms'):
+                message_lines.append(f'🔗 Доп. площадки: {html.escape(str(application_data["other_platforms"]))}')
+            if application_data.get('audience_size'):
+                message_lines.append(f'👥 Аудитория: {application_data["audience_size"]}')
+            if application_data.get('content_topic'):
+                message_lines.append(f'🎯 Тематика: {html.escape(str(application_data["content_topic"]))}')
+            if application_data.get('description'):
+                desc = str(application_data['description'])
+                if len(desc) > 200:
+                    desc = desc[:197] + '...'
+                message_lines.append(f'📝 {html.escape(desc)}')
+
+            message_lines.extend(
+                [
+                    '',
+                    f'⏰ <i>{format_local_datetime(datetime.now(UTC), "%d.%m.%Y %H:%M:%S")}</i>',
+                ]
+            )
+
+            return await self._send_message('\n'.join(message_lines), category=NotificationCategory.PARTNERS)
+
+        except Exception as e:
+            logger.error('Ошибка отправки уведомления о заявке в TikTok-программу', error=e)
+            return False
+
     async def send_withdrawal_request_notification(
         self,
         user: User,

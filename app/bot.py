@@ -70,6 +70,7 @@ from app.handlers.custom_profile import register_handlers as register_custom_pro
 from app.handlers.custom_gift import register_handlers as register_custom_gift_handlers  # CUSTOM-UI
 from app.handlers.custom_reseller import register_handlers as register_custom_reseller_handlers  # CUSTOM-UI
 from app.handlers.custom_partner import register_handlers as register_custom_partner_handlers  # CUSTOM-UI
+from app.handlers.custom_tiktok import register_handlers as register_custom_tiktok_handlers  # CUSTOM-UI
 from app.handlers.stars_payments import register_stars_handlers
 from app.middlewares.auth import AuthMiddleware
 from app.middlewares.blacklist import BlacklistMiddleware
@@ -164,6 +165,7 @@ def build_shop_dispatcher(storage) -> Dispatcher:
     register_custom_gift_handlers(dp)  # CUSTOM-UI: подарки (GuestPurchase-ссылка, оплата с баланса)
     register_custom_reseller_handlers(dp)  # CUSTOM-UI: панель «Мои боты» (управление клонами в боте)
     register_custom_partner_handlers(dp)  # CUSTOM-UI: заявка на партнёрку «Платим за TikTok»
+    register_custom_tiktok_handlers(dp)  # CUSTOM-UI: заявка в TikTok-программу (отдельный трек)
     subscription.register_handlers(dp)
     balance.register_balance_handlers(dp)
     promocode.register_handlers(dp)

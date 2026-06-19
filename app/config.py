@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     TEST_EMAIL_PASSWORD: str = ''  # Password for test account
 
     SUPPORT_USERNAME: str = '@support'
+    # Куда TikTok-авторы шлют результаты после одобрения заявки (отдельный профиль поддержки)
+    TIKTOK_SUPPORT_USERNAME: str = '@VernoVPNsupport'
+    # Премиум (custom) эмодзи на CUSTOM-UI экранах, как в vernovpnbot mock.
+    # При недоступности (нет премиума/эмодзи) сообщения автоматически уходят с обычными
+    # эмодзи — бот не падает. Можно жёстко выключить, поставив false.
+    USE_PREMIUM_EMOJI: bool = True
     SUPPORT_MENU_ENABLED: bool = True
     SUPPORT_SYSTEM_MODE: str = 'both'  # one of: tickets, contact, both
     # SLA for support tickets
