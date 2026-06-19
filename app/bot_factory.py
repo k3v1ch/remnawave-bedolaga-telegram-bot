@@ -25,4 +25,10 @@ def create_bot(token: str | None = None, **kwargs) -> Bot:
         session = AiohttpSession(**session_kwargs)
 
     kwargs.setdefault('default', DefaultBotProperties(parse_mode=ParseMode.HTML))
-    return Bot(token=token or settings.BOT_TOKEN, session=session, **kwargs)
+    bot = Bot(token=token or settings.BOT_TOKEN, session=session, **kwargs)
+
+    # Премиум (custom) эмодзи во ВСЕХ исходящих сообщениях (вкл. клоны).
+    from app.middlewares.premium_emoji_request import PremiumEmojiRequestMiddleware
+
+    bot.session.middleware(PremiumEmojiRequestMiddleware())
+    return bot
