@@ -159,14 +159,14 @@ def _profile_text(user: User, texts) -> str:
     lines = ['👤 <b>Профиль</b>', '']
     lines.append('Telegram: подключён ✅')
     if user.email:
-        status = '✅ подтверждён' if user.email_verified else '⏳ не подтверждён'
+        status = 'подтверждён ✅' if user.email_verified else 'не подтверждён ⏳'
         lines.append(f'Email: <code>{html.escape(user.email)}</code> — {status}')
-        lines.append(f'Пароль: {"установлен ✅" if user.password_hash else "не задан"}')
+        lines.append(f'Пароль: {"установлен ✅" if user.password_hash else "не задан ❌"}')
         lines.append('')
         lines.append('Эти данные используются для входа в личный кабинет на сайте.')
     else:
-        lines.append('Email для входа на сайт: не привязан')
-        lines.append('Пароль: не задан')
+        lines.append('Email для входа на сайт: не привязан ❌')
+        lines.append('Пароль: не задан ❌')
         lines.append('')
         lines.append('Привяжите email и пароль, чтобы входить в личный кабинет на сайте.')
     return '\n'.join(lines)
@@ -488,7 +488,7 @@ def _notif_keyboard(user: User, texts) -> InlineKeyboardMarkup:
     for key, label in CUSTOM_NOTIF_TOGGLES:
         on = bool(get_user_notification_pref(user, key))
         rows.append([
-            InlineKeyboardButton(text=f'{label}: {"🔔" if on else "🔕"}', callback_data=f'kprofile_notif_toggle:{key}')
+            InlineKeyboardButton(text=f'{label}: {"✅" if on else "❌"}', callback_data=f'kprofile_notif_toggle:{key}')
         ])
     rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='custom_profile')])
     return InlineKeyboardMarkup(inline_keyboard=rows)

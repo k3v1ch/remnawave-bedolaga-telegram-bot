@@ -86,13 +86,18 @@ async def get_main_menu_keyboard_async(
                 ]
             )
 
-    open_app_button = build_cabinet_webapp_button(language).model_copy(
-        update={
-            'text': texts.t('CUSTOM_MAIN_MENU_OPEN_APP_BUTTON', 'Открыть приложение'),
-            'style': 'primary',
-        }
-    )
-    rows.append([open_app_button])
+    # CUSTOM-UI: [Открыть приложение] — WebApp нашего кабинета (keldari.online). В white-label
+    # клонах его не показываем: это наш бренд, клиентам ресселера он ни к чему.
+    from app.utils.clone_context import is_clone_context
+
+    if not is_clone_context():
+        open_app_button = build_cabinet_webapp_button(language).model_copy(
+            update={
+                'text': texts.t('CUSTOM_MAIN_MENU_OPEN_APP_BUTTON', 'Открыть приложение'),
+                'style': 'primary',
+            }
+        )
+        rows.append([open_app_button])
 
     rows.append(
         [
@@ -105,9 +110,9 @@ async def get_main_menu_keyboard_async(
     rows.append(
         [
             InlineKeyboardButton(
-                text=texts.t('CUSTOM_MAIN_MENU_REF_BUTTON', '💰 ЗАРАБОТАТЬ'),
+                text=texts.t('CUSTOM_MAIN_MENU_REF_BUTTON', '🪙 ЗАРАБОТАТЬ'),
                 callback_data='menu_referrals',
-                style='danger',
+                style='success',
             )
         ]
     )
@@ -835,6 +840,8 @@ def get_info_menu_keyboard(
     show_public_offer: bool = False,
     show_faq: bool = False,
     show_promo_groups: bool = False,
+    privacy_policy_url: str | None = None,
+    public_offer_url: str | None = None,
 ) -> InlineKeyboardMarkup:
     texts = get_texts(language)
 
@@ -861,24 +868,34 @@ def get_info_menu_keyboard(
         )
 
     if show_privacy_policy:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('MENU_PRIVACY_POLICY', '🛡️ Политика конф.'),
-                    callback_data='menu_privacy_policy',
-                )
-            ]
+        # CUSTOM-UI: если документ — это просто ссылка (telegra.ph и т.п.), открываем её
+        # напрямую url-кнопкой, а не ведём на постраничный экран, где «тупо лежит ссылка».
+        privacy_button = (
+            InlineKeyboardButton(
+                text=texts.t('MENU_PRIVACY_POLICY', '🛡️ Политика конф.'),
+                url=privacy_policy_url,
+            )
+            if privacy_policy_url
+            else InlineKeyboardButton(
+                text=texts.t('MENU_PRIVACY_POLICY', '🛡️ Политика конф.'),
+                callback_data='menu_privacy_policy',
+            )
         )
+        buttons.append([privacy_button])
 
     if show_public_offer:
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    text=texts.t('MENU_PUBLIC_OFFER', '📄 Оферта'),
-                    callback_data='menu_public_offer',
-                )
-            ]
+        public_offer_button = (
+            InlineKeyboardButton(
+                text=texts.t('MENU_PUBLIC_OFFER', '📄 Оферта'),
+                url=public_offer_url,
+            )
+            if public_offer_url
+            else InlineKeyboardButton(
+                text=texts.t('MENU_PUBLIC_OFFER', '📄 Оферта'),
+                callback_data='menu_public_offer',
+            )
         )
+        buttons.append([public_offer_button])
 
     buttons.append([InlineKeyboardButton(text=texts.MENU_RULES, callback_data='menu_rules')])
 
@@ -1676,7 +1693,8 @@ def get_balance_keyboard(language: str = DEFAULT_LANGUAGE) -> InlineKeyboardMark
                 )
             ]
         )
-    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='back_to_menu')])
+    # CUSTOM-UI: «Баланс» — подраздел «Подписки», поэтому «Назад» ведёт в неё, а не в главное меню.
+    keyboard.append([InlineKeyboardButton(text=texts.BACK, callback_data='menu_subscription')])
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
@@ -2326,6 +2344,7 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
                 InlineKeyboardButton(
                     text=texts.t('CUSTOM_REF_STORIES_BUTTON', '✨ 7 дней за сторис ✨'),
                     callback_data='kmock_ref_stories',
+                    style='success',
                 )
             ]
         )
@@ -2334,6 +2353,7 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
                 InlineKeyboardButton(
                     text=texts.t('CUSTOM_REF_POST_BUTTON', '✨ 7 дней за пост ✨'),
                     callback_data='kmock_ref_post',
+                    style='success',
                 )
             ]
         )

@@ -408,11 +408,6 @@ async def show_my_tickets_closed(callback: types.CallbackQuery, db_user: User, d
             texts.t('NO_CLOSED_TICKETS', 'Закрытых тикетов пока нет.'),
             reply_markup=types.InlineKeyboardMarkup(
                 inline_keyboard=[
-                    [
-                        types.InlineKeyboardButton(
-                            text=texts.t('BACK_TO_OPEN_TICKETS', '🔴 Открытые тикеты'), callback_data='my_tickets'
-                        )
-                    ],
                     [types.InlineKeyboardButton(text=texts.BACK, callback_data='menu_support')],
                 ]
             ),
@@ -432,14 +427,6 @@ async def show_my_tickets_closed(callback: types.CallbackQuery, db_user: User, d
         total_pages=total_pages,
         language=db_user.language,
         page_prefix='my_tickets_closed_page_',
-    )
-    kb.inline_keyboard.insert(
-        0,
-        [
-            types.InlineKeyboardButton(
-                text=texts.t('BACK_TO_OPEN_TICKETS', '🔴 Открытые тикеты'), callback_data='my_tickets'
-            )
-        ],
     )
     await edit_or_answer_photo(
         callback=callback,

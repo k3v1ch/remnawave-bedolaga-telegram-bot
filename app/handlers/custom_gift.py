@@ -433,7 +433,25 @@ async def show_topup_for_amount(callback: types.CallbackQuery, db_user: User, db
     texts = get_texts(db_user.language)
     keyboard = get_payment_methods_keyboard(kopeks, db_user.language)
     rows = [list(row) for row in keyboard.inline_keyboard]
-    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data='back_to_menu')])
+    # get_payment_methods_keyboard уже добавляет свою кнопку «Назад» (→ menu_balance) последней
+    # строкой — убираем её, чтобы не дублировать, и ставим одну контекстную.
+    if rows:
+        rows.pop()
+    # CUSTOM-UI: «Назад» возвращает туда, откуда пришли в этот экран дозаписи:
+    # подписка (cart_mode=tariff_purchase) → к выбору периода тарифа; подарок → к периоду подарка;
+    # иначе (на всякий случай) — в баланс.
+    back_callback = 'menu_balance'
+    try:
+        cart = await user_cart_service.get_user_cart(db_user.id)
+    except Exception:
+        cart = None
+    if cart:
+        cart_tariff_id = cart.get('tariff_id')
+        if cart.get('type') == 'custom_gift' and cart_tariff_id:
+            back_callback = f'kgift_tariff:{cart_tariff_id}'
+        elif cart.get('cart_mode') == 'tariff_purchase' and cart_tariff_id:
+            back_callback = f'tariff_select:{cart_tariff_id}'
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_BACK_BUTTON', '‹ Назад'), callback_data=back_callback)])
     text = (
         f'💳 <b>Пополнение на {format_price_kopeks(kopeks)}</b>\n\n'
         'Выберите способ оплаты — после зачисления покупка завершится автоматически.'

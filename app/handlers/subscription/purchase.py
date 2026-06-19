@@ -363,7 +363,7 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
                     f'<b>📦 {html.escape(tariff.name)}</b>',
                     f'Тип: {tariff_type_str}',
                     f'Трафик: {tariff.traffic_limit_gb} ГБ' if tariff.traffic_limit_gb > 0 else 'Трафик: ∞ Безлимит',
-                    f'Устройства: {tariff.device_limit}',
+                    f'Устройства: {devices_count} / {tariff.device_limit}',
                 ]
 
                 if is_daily:
@@ -430,7 +430,10 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
                         tariff_info_lines.append('')
                         tariff_info_lines.append('⏳ Первое списание скоро')
 
-                tariff_info_block = '\n<blockquote expandable>' + '\n'.join(tariff_info_lines) + '</blockquote>'
+                # CUSTOM-UI: у триальщиков карточку тарифа не показываем — она дублирует
+                # «Информация о подписке» ниже и путает на пустом триале.
+                if not subscription.is_trial:
+                    tariff_info_block = '\n<blockquote expandable>' + '\n'.join(tariff_info_lines) + '</blockquote>'
 
         except Exception as e:
             logger.warning('Ошибка получения тарифа', error=e, exc_info=True)

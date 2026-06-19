@@ -59,6 +59,16 @@ async def publish_clone_event(action: str, clone_id: int) -> None:
     ``action`` ∈ {"add", "remove", "reload"}. Best-effort: the reconcile loop is the
     safety net if the cloner misses the message.
     """
+    # CUSTOM-UI: основной процесс держит свой кэш клон-ботов для рассылки уведомлений
+    # (clone_bot_sender). Любое изменение клона (токен/статус/удаление) проходит здесь —
+    # сбрасываем кэш сразу, чтобы рассылка не слала через устаревший токен.
+    try:
+        from app.services.clone_bot_sender import invalidate_clone_bot
+
+        invalidate_clone_bot(clone_id)
+    except Exception:
+        logger.debug('clone_bot_sender invalidate skipped', exc_info=True)
+
     client = redis.from_url(settings.REDIS_URL)
     try:
         await client.publish(settings.CLONE_EVENTS_CHANNEL, json.dumps({'action': action, 'clone_id': clone_id}))

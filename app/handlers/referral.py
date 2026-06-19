@@ -154,12 +154,18 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
 
     # --- Ссылки ---
     lines.append(texts.t('REFERRAL_INFO_LINKS_TITLE', '🔗 <b>Ваши ссылки:</b>'))
+    # CUSTOM-UI: ссылки оборачиваем в <code> — в Telegram это копирование по тапу (а не
+    # кликабельная ссылка). Так удобнее в реф-разделе; работает и в клонах (тот же код).
     link_items = [
-        texts.t('REFERRAL_INFO_LINK_BOT', 'Бот: {link}').format(link=html_escape(bot_referral_link)),
+        texts.t('REFERRAL_INFO_LINK_BOT', 'Бот: {link}').format(
+            link=f'<code>{html_escape(bot_referral_link)}</code>'
+        ),
     ]
     if cabinet_referral_link:
         link_items.append(
-            texts.t('REFERRAL_INFO_LINK_SITE', 'Сайт: {link}').format(link=html_escape(cabinet_referral_link))
+            texts.t('REFERRAL_INFO_LINK_SITE', 'Сайт: {link}').format(
+                link=f'<code>{html_escape(cabinet_referral_link)}</code>'
+            )
         )
     lines.append(_render_tree(link_items))
 

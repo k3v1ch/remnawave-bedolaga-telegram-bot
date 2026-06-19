@@ -33,6 +33,8 @@ logger = structlog.get_logger(__name__)
 
 _PAGE = 8
 _STATUS_ICON = {'active': '🟢', 'disabled': '⚪️', 'pending': '🟡', 'error': '🔴'}
+# Человекочитаемые подписи статуса (вместо сырых active/disabled).
+_STATUS_LABEL = {'active': 'включён', 'disabled': 'выключен', 'pending': 'создаётся', 'error': 'ошибка'}
 
 
 def _rub(kopeks: int) -> str:
@@ -78,7 +80,7 @@ async def _render_detail(db: AsyncSession, clone_id: int) -> tuple[str, InlineKe
 
     lines = [
         f'{icon} <b>@{html.escape(clone.bot_username or str(clone.bot_id))}</b>',
-        f'Статус: <b>{clone.status}</b>',
+        f'Статус: <b>{_STATUS_LABEL.get(clone.status, clone.status)}</b>',
         f'Сквад: <b>{html.escape(clone.external_squad_name or "—")}</b>',
         f'Заголовок профиля: <b>{html.escape(clone.profile_title or "—")}</b>',
         f'Привёл пользователей: <b>{st.get("users", 0)}</b>',

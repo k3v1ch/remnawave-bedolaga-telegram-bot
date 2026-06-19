@@ -21,6 +21,7 @@ from app.localization.texts import get_texts
 from app.states import BalanceStates
 from app.utils.decorators import error_handler
 from app.utils.miniapp_buttons import build_cabinet_webapp_button
+from app.utils.photo_message import edit_or_answer_photo
 
 
 logger = structlog.get_logger(__name__)
@@ -236,16 +237,15 @@ async def show_balance_menu(callback: types.CallbackQuery, db_user: User, db: As
 
     reply_markup = get_balance_keyboard(db_user.language)
 
-    try:
-        if callback.message and callback.message.text:
-            await callback.message.edit_text(balance_text, reply_markup=reply_markup)
-        elif callback.message and callback.message.caption:
-            await callback.message.edit_caption(balance_text, reply_markup=reply_markup)
-        else:
-            await callback.message.answer(balance_text, reply_markup=reply_markup)
-    except TelegramBadRequest as error:
-        logger.warning('Failed to edit balance message, sending a new one instead', error=error)
-        await callback.message.answer(balance_text, reply_markup=reply_markup)
+    # CUSTOM-UI: рендерим экран баланса так же, как остальные экраны (фото + подпись) через
+    # edit_or_answer_photo. Ручной edit_text/edit_caption на фото-экране подписки мог терять
+    # подпись (баланс «пропадал»). parse_mode=HTML — для <b>Баланс: …</b>.
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=balance_text,
+        keyboard=reply_markup,
+        parse_mode='HTML',
+    )
     await callback.answer()
 
 

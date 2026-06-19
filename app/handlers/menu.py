@@ -270,6 +270,22 @@ async def show_service_rules(callback: types.CallbackQuery, db_user: User, db: A
     await callback.answer()
 
 
+def _content_bare_url(content: str | None) -> str | None:
+    """CUSTOM-UI: вернуть URL, если весь контент документа — это одна голая ссылка.
+
+    Тогда кнопку в «Инфо» (политика/оферта) делаем прямой url-ссылкой. Для HTML-разметки
+    или многостраничного текста возвращаем None — остаётся постраничный показ по callback.
+    """
+    if not content:
+        return None
+    stripped = content.strip()
+    if not stripped or any(ch.isspace() for ch in stripped):
+        return None
+    if stripped.startswith(('http://', 'https://')):
+        return stripped
+    return None
+
+
 async def show_info_menu(
     callback: types.CallbackQuery,
     db_user: User,
@@ -293,8 +309,14 @@ async def show_info_menu(
     prompt = texts.t('MENU_INFO_PROMPT', 'Выберите раздел:')
     caption = f'{header}\n\n{prompt}' if prompt else header
 
-    privacy_enabled = await PrivacyPolicyService.is_policy_enabled(db, db_user.language)
-    public_offer_enabled = await PublicOfferService.is_offer_enabled(db, db_user.language)
+    privacy_policy = await PrivacyPolicyService.get_active_policy(db, db_user.language)
+    public_offer = await PublicOfferService.get_active_offer(db, db_user.language)
+    privacy_enabled = privacy_policy is not None
+    public_offer_enabled = public_offer is not None
+    # CUSTOM-UI: если документ — это просто ссылка, отдаём её кнопке как url (открыть напрямую),
+    # иначе остаётся постраничный показ контента по callback.
+    privacy_policy_url = _content_bare_url(privacy_policy.content) if privacy_policy else None
+    public_offer_url = _content_bare_url(public_offer.content) if public_offer else None
     faq_enabled = await FaqService.is_enabled(db, db_user.language)
     promo_groups_available = await has_auto_assign_promo_groups(db)
 
@@ -307,6 +329,8 @@ async def show_info_menu(
             show_public_offer=public_offer_enabled,
             show_faq=faq_enabled,
             show_promo_groups=promo_groups_available,
+            privacy_policy_url=privacy_policy_url,
+            public_offer_url=public_offer_url,
         ),
         parse_mode='HTML',
     )

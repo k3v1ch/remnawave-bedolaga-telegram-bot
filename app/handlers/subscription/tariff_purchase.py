@@ -118,60 +118,16 @@ def format_tariffs_list_text(
     has_period_discounts: bool = False,
     purchased_tariff_ids: set[int] | None = None,
 ) -> str:
-    """Форматирует текст со списком тарифов для отображения."""
+    """Форматирует текст для экрана выбора тарифа.
+
+    CUSTOM-UI: сам список тарифов вынесен в кнопки (get_tariffs_keyboard), поэтому в тексте
+    оставляем только заголовок (+ подсказку о скидках), без перечисления тарифов и описаний.
+    Аргументы tariffs/db_user/purchased_tariff_ids сохранены для совместимости вызовов.
+    """
     lines = ['📦 <b>Выберите тариф</b>']
-    if purchased_tariff_ids is None:
-        purchased_tariff_ids = set()
 
     if has_period_discounts:
         lines.append('🎁 <i>Скидки по периодам</i>')
-
-    lines.append('')
-
-    for tariff in tariffs:
-        # Трафик компактно
-        traffic_gb = tariff.traffic_limit_gb
-        traffic = '∞' if traffic_gb == 0 else f'{traffic_gb} ГБ'
-
-        # Цена
-        is_daily = getattr(tariff, 'is_daily', False)
-        price_text = ''
-        discount_icon = ''
-
-        if is_daily:
-            # Для суточных тарифов показываем цену за день с учётом скидки промогруппы
-            daily_price = getattr(tariff, 'daily_price_kopeks', 0)
-            if db_user:
-                group_pct, offer_pct, daily_discount = _get_user_period_discount(db_user, 1)
-                if daily_discount > 0:
-                    daily_price = _apply_promo_discount(daily_price, group_pct, offer_pct)
-                    discount_icon = '🔥'
-            price_text = f'🔄 {format_price_kopeks(daily_price, compact=True)}/день{discount_icon}'
-        else:
-            # Для периодных тарифов показываем минимальную цену
-            prices = tariff.period_prices or {}
-            if prices:
-                min_period = min(prices.keys(), key=int)
-                min_price = prices[min_period]
-                group_pct, offer_pct, discount_percent = 0, 0, 0
-                if db_user:
-                    group_pct, offer_pct, discount_percent = _get_user_period_discount(db_user, int(min_period))
-                if discount_percent > 0:
-                    min_price = _apply_promo_discount(min_price, group_pct, offer_pct)
-                    discount_icon = '🔥'
-                price_text = f'от {format_price_kopeks(min_price, compact=True)}{discount_icon}'
-
-        # Компактный формат: Название — 250 ГБ / 10 📱 от 179₽🔥
-        purchased_mark = ' ✅' if tariff.id in purchased_tariff_ids else ''
-        lines.append(
-            f'<b>{html.escape(tariff.name)}</b>{purchased_mark} — {traffic} / {tariff.device_limit} 📱 {price_text}'
-        )
-
-        # Описание тарифа если есть
-        if tariff.description:
-            lines.append(f'<i>{html.escape(tariff.description)}</i>')
-
-        lines.append('')
 
     return '\n'.join(lines)
 

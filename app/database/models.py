@@ -3490,9 +3490,9 @@ class Ticket(Base):
     @property
     def status_emoji(self) -> str:
         status_emojis = {
-            TicketStatus.OPEN.value: '🔴',
+            TicketStatus.OPEN.value: '🟢',
             TicketStatus.ANSWERED.value: '🟡',
-            TicketStatus.CLOSED.value: '🟢',
+            TicketStatus.CLOSED.value: '🔴',
             TicketStatus.PENDING.value: '⏳',
         }
         return status_emojis.get(self.status, '❓')

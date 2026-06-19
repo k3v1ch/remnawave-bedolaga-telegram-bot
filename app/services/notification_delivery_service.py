@@ -209,8 +209,17 @@ class NotificationDeliveryService:
         markup: Any | None,
     ) -> bool:
         """Send notification via Telegram bot."""
+        # CUSTOM-UI: клон-подписчику основной бот недоступен — отправляем через его клон-бота
+        # (единая точка выбора бота для всех вызывающих этот сервис).
+        from app.services.clone_bot_sender import get_bot_for_user
+
+        bot = await get_bot_for_user(user, default_bot=bot)
         if not bot:
-            logger.warning('Bot instance not provided for Telegram notification to user', telegram_id=user.telegram_id)
+            logger.warning(
+                'Bot для пользователя недоступен (клон выключен/не передан основной бот) — пропуск',
+                telegram_id=user.telegram_id,
+                clone_bot_id=getattr(user, 'clone_bot_id', None),
+            )
             return False
 
         if not message:

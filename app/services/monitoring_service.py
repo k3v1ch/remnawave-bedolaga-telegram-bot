@@ -131,6 +131,16 @@ class MonitoringService:
         # In-memory fallback для cooldown автоплатежей (на случай недоступности Redis)
         self._autopay_fail_notified_at: dict[int, datetime] = {}
 
+    async def _bot_for_user(self, user: User | None):
+        """Бот, которым можно достать пользователя: основной или его клон-бот.
+
+        Для клон-подписчиков основной бот недоступен (они его не запускали)."""
+        if user is None:
+            return self.bot
+        from app.services.clone_bot_sender import get_bot_for_user
+
+        return await get_bot_for_user(user, default_bot=self.bot)
+
     async def _send_message_with_logo(
         self,
         chat_id: int | None,
@@ -153,6 +163,17 @@ class MonitoringService:
             logger.debug('Пропуск уведомления: пользователь недоступен', user_id=user.id, status=user.status)
             return None
 
+        # CUSTOM-UI: клон-подписчика основной бот не достанет — шлём через его клон-бота.
+        # Если user не передан, остаёмся на основном боте (обычное поведение).
+        bot = await self._bot_for_user(user)
+        if bot is None:
+            logger.debug(
+                'Пропуск уведомления: клон-бот пользователя недоступен',
+                user_id=getattr(user, 'id', None),
+                clone_bot_id=getattr(user, 'clone_bot_id', None),
+            )
+            return None
+
         if (
             settings.ENABLE_LOGO_MODE
             and await asyncio.to_thread(LOGO_PATH.exists)
@@ -161,7 +182,7 @@ class MonitoringService:
             try:
                 from app.utils.message_patch import _cache_logo_file_id, get_logo_media
 
-                result = await self.bot.send_photo(
+                result = await bot.send_photo(
                     chat_id=chat_id,
                     photo=get_logo_media(),
                     caption=text,
@@ -177,7 +198,7 @@ class MonitoringService:
                     exc=exc,
                 )
 
-        return await self.bot.send_message(
+        return await bot.send_message(
             chat_id=chat_id,
             text=text,
             reply_markup=reply_markup,
@@ -1296,8 +1317,9 @@ class MonitoringService:
                     try:
                         if not await cache.exists(autopay_legacy_key):
                             user = sub.user
-                            if user and user.telegram_id and self.bot:
-                                await self.bot.send_message(
+                            _bot = await self._bot_for_user(user) if user else None
+                            if user and user.telegram_id and _bot:
+                                await _bot.send_message(
                                     chat_id=user.telegram_id,
                                     text=(
                                         '⚠️ <b>Автоплатёж приостановлен</b>\n\n'
@@ -1676,6 +1698,7 @@ class MonitoringService:
                 text=message,
                 parse_mode='HTML',
                 reply_markup=keyboard,
+                user=user,
             )
             return True
 
@@ -1769,6 +1792,7 @@ class MonitoringService:
                 text=message,
                 parse_mode='HTML',
                 reply_markup=keyboard,
+                user=user,
             )
             return True
 
@@ -1976,6 +2000,7 @@ class MonitoringService:
                 text=message,
                 parse_mode='HTML',
                 reply_markup=keyboard,
+                user=user,
             )
             return True
 
@@ -2065,6 +2090,7 @@ class MonitoringService:
                 text=message,
                 parse_mode='HTML',
                 reply_markup=keyboard,
+                user=user,
             )
             return True
 
@@ -2104,6 +2130,7 @@ class MonitoringService:
                 chat_id=user.telegram_id,
                 text=message,
                 parse_mode='HTML',
+                user=user,
             )
         except (TelegramForbiddenError, TelegramBadRequest) as exc:
             if not await self._handle_unreachable_user(user, exc, 'уведомление об успешном автоплатеже'):
@@ -2148,6 +2175,7 @@ class MonitoringService:
                 text=message,
                 parse_mode='HTML',
                 reply_markup=keyboard,
+                user=user,
             )
 
         except (TelegramForbiddenError, TelegramBadRequest) as exc:
@@ -2264,11 +2292,13 @@ class MonitoringService:
                         limit=traffic_limit,
                         percent=current_percent,
                     )
-                    await self.bot.send_message(
-                        user.telegram_id,
-                        message,
-                        parse_mode='HTML',
-                    )
+                    _bot = await self._bot_for_user(user)
+                    if _bot:
+                        await _bot.send_message(
+                            user.telegram_id,
+                            message,
+                            parse_mode='HTML',
+                        )
                     try:
                         await cache.set(cache_key_str, '1', expire=86400)
                     except Exception:
@@ -2375,12 +2405,14 @@ class MonitoringService:
                         ]
                     )
 
-                    await self.bot.send_message(
-                        user.telegram_id,
-                        message,
-                        parse_mode='HTML',
-                        reply_markup=keyboard,
-                    )
+                    _bot = await self._bot_for_user(user)
+                    if _bot:
+                        await _bot.send_message(
+                            user.telegram_id,
+                            message,
+                            parse_mode='HTML',
+                            reply_markup=keyboard,
+                        )
                     # Mark as sent for 24 hours
                     try:
                         await cache.set(cache_key_str, '1', expire=86400)
