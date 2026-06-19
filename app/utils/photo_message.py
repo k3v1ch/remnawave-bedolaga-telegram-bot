@@ -61,6 +61,7 @@ async def _answer_text(
     keyboard: types.InlineKeyboardMarkup | None,
     parse_mode: str | None,
     error: TelegramBadRequest | None = None,
+    caption_entities: list[types.MessageEntity] | None = None,
 ) -> None:
     language = _get_language(callback)
     kwargs = _build_base_kwargs(keyboard, parse_mode)
@@ -69,12 +70,19 @@ async def _answer_text(
         caption = append_privacy_hint(caption, language)
         kwargs = prepare_privacy_safe_kwargs(kwargs)
 
-    kwargs.setdefault('parse_mode', parse_mode or 'HTML')
+    # Premium (custom) эмодзи: entities заменяют parse_mode. При ошибке Telegram
+    # повторяем без entities — символы останутся обычными эмодзи (бот не падает).
+    if caption_entities:
+        kwargs['entities'] = caption_entities
+        kwargs.pop('parse_mode', None)
+        try:
+            await callback.message.answer(caption, **kwargs)
+            return
+        except TelegramBadRequest:
+            kwargs.pop('entities', None)
 
-    await callback.message.answer(
-        caption,
-        **kwargs,
-    )
+    kwargs.setdefault('parse_mode', parse_mode or 'HTML')
+    await callback.message.answer(caption, **kwargs)
 
 
 async def edit_or_answer_photo(
@@ -84,8 +92,15 @@ async def edit_or_answer_photo(
     parse_mode: str | None = 'HTML',
     *,
     force_text: bool = False,
+    caption_entities: list[types.MessageEntity] | None = None,
 ) -> None:
     resolved_parse_mode = parse_mode or 'HTML'
+
+    # Premium (custom) эмодзи: entities заменяют parse_mode на ОСНОВНОЙ попытке.
+    # error-фоллбэки ниже идут без entities → при недоступности премиума символы
+    # просто рисуются обычными эмодзи, бот не падает.
+    ents = caption_entities or None
+    caption_pm = None if ents else resolved_parse_mode
 
     # Если сообщение недоступно, отправляем новое сообщение
     if isinstance(callback.message, InaccessibleMessage):
@@ -95,14 +110,16 @@ async def edit_or_answer_photo(
                     photo=get_logo_media(),
                     caption=caption,
                     reply_markup=keyboard,
-                    parse_mode=resolved_parse_mode,
+                    parse_mode=caption_pm,
+                    caption_entities=ents,
                 )
                 _cache_logo_file_id(result)
             else:
                 await callback.message.answer(
                     caption,
                     reply_markup=keyboard,
-                    parse_mode=resolved_parse_mode,
+                    parse_mode=caption_pm,
+                    entities=ents,
                 )
         except Exception as e:
             logger.warning('Не удалось отправить новое сообщение для InaccessibleMessage', e=e)
@@ -121,12 +138,13 @@ async def edit_or_answer_photo(
         try:
             if callback.message.photo:
                 await callback.message.delete()
-                await _answer_text(callback, caption, keyboard, resolved_parse_mode)
+                await _answer_text(callback, caption, keyboard, resolved_parse_mode, caption_entities=ents)
             else:
                 await callback.message.edit_text(
                     caption,
                     reply_markup=keyboard,
-                    parse_mode=resolved_parse_mode,
+                    parse_mode=caption_pm,
+                    entities=ents,
                 )
         except TelegramForbiddenError:
             logger.debug('Пользователь заблокировал бота, пропускаем')
@@ -135,7 +153,7 @@ async def edit_or_answer_photo(
                 await callback.message.delete()
             except Exception:
                 pass
-            await _answer_text(callback, caption, keyboard, resolved_parse_mode, error)
+            await _answer_text(callback, caption, keyboard, resolved_parse_mode, error, caption_entities=ents)
         return
 
     # Если текст слишком длинный для caption — отправим как текст
@@ -143,11 +161,11 @@ async def edit_or_answer_photo(
         try:
             if callback.message.photo:
                 await callback.message.delete()
-            await _answer_text(callback, caption, keyboard, resolved_parse_mode)
+            await _answer_text(callback, caption, keyboard, resolved_parse_mode, caption_entities=ents)
         except TelegramForbiddenError:
             logger.debug('Пользователь заблокировал бота, пропускаем')
         except TelegramBadRequest as error:
-            await _answer_text(callback, caption, keyboard, resolved_parse_mode, error)
+            await _answer_text(callback, caption, keyboard, resolved_parse_mode, error, caption_entities=ents)
         return
 
     media = _resolve_media(callback.message)
@@ -159,14 +177,19 @@ async def edit_or_answer_photo(
             await callback.message.delete()
         except Exception:
             pass
-        await _answer_text(callback, caption, keyboard, resolved_parse_mode)
+        await _answer_text(callback, caption, keyboard, resolved_parse_mode, caption_entities=ents)
         return
 
     # Retry logic для сетевых ошибок
     for attempt in range(MAX_RETRIES):
         try:
             await callback.message.edit_media(
-                InputMediaPhoto(media=media, caption=caption, parse_mode=(parse_mode or 'HTML')),
+                InputMediaPhoto(
+                    media=media,
+                    caption=caption,
+                    parse_mode=caption_pm,
+                    caption_entities=ents,
+                ),
                 reply_markup=keyboard,
             )
             return  # Успешно — выходим
