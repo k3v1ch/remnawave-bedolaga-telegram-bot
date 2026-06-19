@@ -924,6 +924,22 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             referrer = None
 
         if referrer and referrer.telegram_id != message.from_user.id:
+            # Переход по реф-ссылке — копим счётчик для экрана статистики (SCR-REF).
+            # Атомарный UPDATE, ошибки глотаем: метрика мягкая, не должна ронять /start.
+            try:
+                from sqlalchemy import update as _sql_update
+
+                from app.database.models import User as _User
+
+                await db.execute(
+                    _sql_update(_User)
+                    .where(_User.id == referrer.id)
+                    .values(referral_clicks_count=_User.referral_clicks_count + 1)
+                )
+                await db.commit()
+            except Exception as exc:
+                logger.warning('Failed to increment referral_clicks_count', error=exc)
+
             if not db_user:
                 # New user — save to Redis so the cabinet/miniapp
                 # auth route can pick it up if the user opens the

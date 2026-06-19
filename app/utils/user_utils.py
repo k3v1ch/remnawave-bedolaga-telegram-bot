@@ -176,10 +176,24 @@ async def get_user_referral_summary(db: AsyncSession, user_id: int) -> dict:
         )
         active_referrals_count = active_result.scalar() or 0
 
+        # Рефералы с активной ТРИАЛ-подпиской — для строки «На пробной подписке» (SCR-REF).
+        trial_result = await db.execute(
+            select(func.count(func.distinct(User.id)))
+            .join(Subscription, User.id == Subscription.user_id)
+            .where(
+                User.referred_by_id == user_id,
+                Subscription.status == SubscriptionStatus.ACTIVE.value,
+                Subscription.end_date > func.now(),
+                Subscription.is_trial.is_(True),
+            )
+        )
+        trial_referrals_count = trial_result.scalar() or 0
+
         return {
             'invited_count': invited_count,
             'paid_referrals_count': paid_referrals_count,
             'active_referrals_count': active_referrals_count,
+            'trial_referrals_count': trial_referrals_count,
             'total_earned_kopeks': total_earned_kopeks,
             'month_earned_kopeks': month_earned_kopeks,
             'recent_earnings': recent_earnings,
@@ -193,6 +207,7 @@ async def get_user_referral_summary(db: AsyncSession, user_id: int) -> dict:
             'invited_count': 0,
             'paid_referrals_count': 0,
             'active_referrals_count': 0,
+            'trial_referrals_count': 0,
             'total_earned_kopeks': 0,
             'month_earned_kopeks': 0,
             'recent_earnings': [],

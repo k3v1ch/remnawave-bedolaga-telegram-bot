@@ -476,9 +476,16 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
 
     device_limit_display = str(subscription.device_limit)
 
+    tariff_name = (
+        html.escape(tariff.name)
+        if tariff and getattr(tariff, 'name', None)
+        else texts.t('SUBSCRIPTION_TARIFF_DEFAULT', 'Подписка')
+    )
+
     message = message_template.format(
         full_name=html.escape(db_user.full_name or ''),
         balance=settings.format_price(db_user.balance_kopeks),
+        tariff_name=tariff_name,
         status_emoji=status_emoji,
         status_display=status_display,
         warning=warning_text,

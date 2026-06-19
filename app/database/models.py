@@ -1956,6 +1956,9 @@ class User(Base):
     has_had_paid_subscription = Column(Boolean, default=False, nullable=False)
     referred_by_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     referral_code = Column(String(20), unique=True, nullable=True)
+    # Счётчики реф-программы для экрана статистики (SCR-REF).
+    referral_clicks_count = Column(Integer, default=0, nullable=False, server_default='0')
+    referral_days_earned = Column(Integer, default=0, nullable=False, server_default='0')
     created_at = Column(AwareDateTime(), default=func.now())
     updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
     last_activity = Column(AwareDateTime(), default=func.now())

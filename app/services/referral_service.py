@@ -1124,6 +1124,9 @@ async def _award_inviter_topup_days(
             reason='referral_inviter_topup_days',
         )
 
+        # Суммарно заработанные дни — для экрана реф-статистики (SCR-REF).
+        referrer.referral_days_earned = (referrer.referral_days_earned or 0) + bonus_days
+
         logger.info(
             '🎁 Бонусные дни за пополнение реферала начислены пригласившему',
             referrer_id=referrer.id,

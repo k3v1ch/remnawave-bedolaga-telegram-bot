@@ -31,6 +31,17 @@ from app.utils.user_utils import (
 logger = structlog.get_logger(__name__)
 
 
+def _render_tree(items: list[str]) -> str:
+    """├/└-дерево пунктов как в макете ВЕРНО VPN (SCR-REF)."""
+    if not items:
+        return ''
+    lines = []
+    for idx, item in enumerate(items):
+        prefix = '└ ' if idx == len(items) - 1 else '├ '
+        lines.append(prefix + item)
+    return '\n'.join(lines)
+
+
 async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
     # Проверяем, включена ли реферальная программа
     if not settings.is_referral_program_enabled():
@@ -50,205 +61,109 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
     bot_referral_link = settings.get_bot_referral_link(db_user.referral_code, bot_username)
     cabinet_referral_link = _cabinet_referral_link(db_user)
 
-    referral_text = (
-        texts.t('REFERRAL_PROGRAM_TITLE', '👥 <b>Реферальная программа</b>')
-        + '\n\n'
-        + texts.t('REFERRAL_STATS_HEADER', '📊 <b>Ваша статистика:</b>')
-        + '\n'
-        + texts.t(
-            'REFERRAL_STATS_INVITED',
-            '• Приглашено пользователей: <b>{count}</b>',
-        ).format(count=summary['invited_count'])
-        + '\n'
-        + texts.t(
-            'REFERRAL_STATS_FIRST_TOPUPS',
-            '• Сделали первое пополнение: <b>{count}</b>',
-        ).format(count=summary['paid_referrals_count'])
-        + '\n'
-        + texts.t(
-            'REFERRAL_STATS_ACTIVE',
-            '• Активных рефералов: <b>{count}</b>',
-        ).format(count=summary['active_referrals_count'])
-        + '\n'
-        + texts.t(
-            'REFERRAL_STATS_CONVERSION',
-            '• Конверсия: <b>{rate}%</b>',
-        ).format(rate=summary['conversion_rate'])
-        + '\n'
-        + texts.t(
-            'REFERRAL_STATS_TOTAL_EARNED',
-            '• Заработано всего: <b>{amount}</b>',
-        ).format(amount=texts.format_price(summary['total_earned_kopeks']))
-        + '\n'
-        + texts.t(
-            'REFERRAL_STATS_MONTH_EARNED',
-            '• За последний месяц: <b>{amount}</b>',
-        ).format(amount=texts.format_price(summary['month_earned_kopeks']))
-        + '\n\n'
-        + texts.t('REFERRAL_REWARDS_HEADER', '🎁 <b>Как работают награды:</b>')
-    )
-
-    if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
-        referral_text += '\n' + texts.t(
-            'REFERRAL_REWARD_NEW_USER',
-            '• Новый пользователь получает: <b>{bonus}</b> при первом пополнении от <b>{minimum}</b>',
-        ).format(
-            bonus=texts.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS),
-            minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS),
-        )
-
-    if settings.REFERRAL_INVITER_BONUS_KOPEKS > 0:
-        referral_text += '\n' + texts.t(
-            'REFERRAL_REWARD_INVITER',
-            '• Вы получаете при первом пополнении реферала: <b>{bonus}</b>',
-        ).format(bonus=texts.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
-
-    if settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS > 0 and not db_user.is_partner:
-        referral_text += '\n' + texts.t(
-            'REFERRAL_REWARD_INVITER_DAYS',
-            '• Вы получаете <b>+{days} дн.</b> к подписке за каждое пополнение друга от <b>{minimum}</b>',
-        ).format(
-            days=settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS,
-            minimum=texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS),
-        )
-
+    # Текст в стиле макета ВЕРНО VPN (SCR-REF). Награды динамические и разные для
+    # партнёров (комиссия %) и обычных юзеров (дни за пополнение) — см. referral_service.
+    minimum_price = texts.format_price(settings.REFERRAL_MINIMUM_TOPUP_KOPEKS)
     commission_percent = get_effective_referral_commission_percent(db_user)
-    if commission_percent > 0:
-        if settings.REFERRAL_MAX_COMMISSION_PAYMENTS > 0:
-            commission_line = texts.t(
-                'REFERRAL_REWARD_COMMISSION_LIMITED',
-                '• Комиссия с первых {max_payments} пополнений реферала: <b>{percent}%</b>',
-            ).format(
-                percent=commission_percent,
-                max_payments=settings.REFERRAL_MAX_COMMISSION_PAYMENTS,
-            )
-        else:
-            commission_line = texts.t(
-                'REFERRAL_REWARD_COMMISSION',
-                '• Комиссия с каждого пополнения реферала: <b>{percent}%</b>',
-            ).format(percent=commission_percent)
-        referral_text += '\n' + commission_line
+    earned_balance = texts.format_price(summary['total_earned_kopeks'])
 
-    referral_text += '\n\n'
+    lines: list[str] = [texts.t('REFERRAL_INFO_HEADER', '🚀 <b>Реферальная система</b>'), '']
 
-    # Show bot link
-    referral_text += (
-        texts.t('REFERRAL_BOT_LINK_TITLE', '🤖 <b>Ссылка на бота:</b>') + f'\n{html_escape(bot_referral_link)}\n'
-    )
-
-    # Show cabinet link if configured
-    if cabinet_referral_link:
-        referral_text += (
-            '\n'
-            + texts.t('REFERRAL_CABINET_LINK_TITLE', '🌐 <b>Ссылка на кабинет:</b>')
-            + f'\n{html_escape(cabinet_referral_link)}\n'
-        )
-
-    referral_text += (
-        '\n'
-        + texts.t('REFERRAL_CODE_TITLE', '🆔 <b>Ваш код:</b> <code>{code}</code>').format(
-            code=html_escape(str(db_user.referral_code or ''))
-        )
-        + '\n\n'
-    )
-
-    if summary['recent_earnings']:
-        meaningful_earnings = [earning for earning in summary['recent_earnings'][:5] if earning['amount_kopeks'] > 0]
-
-        if meaningful_earnings:
-            referral_text += (
-                texts.t(
-                    'REFERRAL_RECENT_EARNINGS_HEADER',
-                    '💰 <b>Последние начисления:</b>',
-                )
-                + '\n'
-            )
-            for earning in meaningful_earnings[:3]:
-                reason_text = {
-                    'referral_first_topup': texts.t(
-                        'REFERRAL_EARNING_REASON_FIRST_TOPUP',
-                        '🎉 Первое пополнение',
-                    ),
-                    'referral_commission_topup': texts.t(
-                        'REFERRAL_EARNING_REASON_COMMISSION_TOPUP',
-                        '💰 Комиссия с пополнения',
-                    ),
-                    'referral_commission': texts.t(
-                        'REFERRAL_EARNING_REASON_COMMISSION_PURCHASE',
-                        '💰 Комиссия с покупки',
-                    ),
-                }.get(earning['reason'], earning['reason'])
-
-                referral_text += (
-                    texts.t(
-                        'REFERRAL_RECENT_EARNINGS_ITEM',
-                        '• {reason}: <b>{amount}</b> от {referral_name}',
-                    ).format(
-                        reason=reason_text,
-                        amount=texts.format_price(earning['amount_kopeks']),
-                        referral_name=html_escape(str(earning['referral_name'] or '')),
-                    )
-                    + '\n'
-                )
-            referral_text += '\n'
-
-    if summary['earnings_by_type']:
-        referral_text += (
+    # --- Блок наград ---
+    if db_user.is_partner:
+        lines.append(texts.t('REFERRAL_INFO_REWARD_PARTNER_TITLE', '💸 <b>Партнёрская программа</b>'))
+        reward_items = [
             texts.t(
-                'REFERRAL_EARNINGS_BY_TYPE_HEADER',
-                '📈 <b>Доходы по типам:</b>',
+                'REFERRAL_INFO_REWARD_PARTNER_SIGNUP',
+                'Друг регистрируется и оплачивает подписку от {minimum}',
+            ).format(minimum=minimum_price),
+        ]
+        if commission_percent > 0:
+            reward_items.append(
+                texts.t(
+                    'REFERRAL_INFO_REWARD_PARTNER_COMMISSION',
+                    'Вы получаете {percent}% с каждого его пополнения на баланс',
+                ).format(percent=commission_percent)
             )
-            + '\n'
+    else:
+        lines.append(texts.t('REFERRAL_INFO_REWARD_TITLE', '💸 <b>Приглашайте друзей и зарабатывайте</b>'))
+        reward_items = [
+            texts.t(
+                'REFERRAL_INFO_REWARD_SIGNUP',
+                'Друг регистрируется и оплачивает подписку от {minimum}',
+            ).format(minimum=minimum_price),
+        ]
+        if settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS > 0:
+            reward_items.append(
+                texts.t(
+                    'REFERRAL_INFO_REWARD_DAYS',
+                    'Вы получаете +{days} дн. к подписке за каждое его пополнение',
+                ).format(days=settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS)
+            )
+        if settings.REFERRAL_INVITER_BONUS_KOPEKS > 0:
+            reward_items.append(
+                texts.t(
+                    'REFERRAL_INFO_REWARD_FIRST_BONUS',
+                    'Бонус {bonus} за первое пополнение друга',
+                ).format(bonus=texts.format_price(settings.REFERRAL_INVITER_BONUS_KOPEKS))
+            )
+        if commission_percent > 0:
+            reward_items.append(
+                texts.t(
+                    'REFERRAL_INFO_REWARD_COMMISSION',
+                    'Плюс {percent}% с каждого его пополнения на баланс',
+                ).format(percent=commission_percent)
+            )
+    lines.append(_render_tree(reward_items))
+    lines.append('')
+
+    # --- Статистика ---
+    lines.append(texts.t('REFERRAL_INFO_STATS_TITLE', '📊 <b>Статистика:</b>'))
+    lines.append(
+        _render_tree(
+            [
+                texts.t('REFERRAL_INFO_STAT_CLICKS', 'Переходов по ссылке: {n}').format(
+                    n=db_user.referral_clicks_count or 0
+                ),
+                texts.t('REFERRAL_INFO_STAT_TRIAL', 'На пробной подписке: {n}').format(
+                    n=summary['trial_referrals_count']
+                ),
+                texts.t('REFERRAL_INFO_STAT_PAID', 'Заплативших: {n}').format(n=summary['paid_referrals_count']),
+                texts.t('REFERRAL_INFO_STAT_ACTIVE', 'С активной подпиской: {n}').format(
+                    n=summary['active_referrals_count']
+                ),
+            ]
         )
-
-        if 'referral_first_topup' in summary['earnings_by_type']:
-            data = summary['earnings_by_type']['referral_first_topup']
-            if data['total_amount_kopeks'] > 0:
-                referral_text += (
-                    texts.t(
-                        'REFERRAL_EARNINGS_FIRST_TOPUPS',
-                        '• Бонусы за первые пополнения: <b>{count}</b> ({amount})',
-                    ).format(
-                        count=data['count'],
-                        amount=texts.format_price(data['total_amount_kopeks']),
-                    )
-                    + '\n'
-                )
-
-        if 'referral_commission_topup' in summary['earnings_by_type']:
-            data = summary['earnings_by_type']['referral_commission_topup']
-            if data['total_amount_kopeks'] > 0:
-                referral_text += (
-                    texts.t(
-                        'REFERRAL_EARNINGS_TOPUPS',
-                        '• Комиссии с пополнений: <b>{count}</b> ({amount})',
-                    ).format(
-                        count=data['count'],
-                        amount=texts.format_price(data['total_amount_kopeks']),
-                    )
-                    + '\n'
-                )
-
-        if 'referral_commission' in summary['earnings_by_type']:
-            data = summary['earnings_by_type']['referral_commission']
-            if data['total_amount_kopeks'] > 0:
-                referral_text += (
-                    texts.t(
-                        'REFERRAL_EARNINGS_PURCHASES',
-                        '• Комиссии с покупок: <b>{count}</b> ({amount})',
-                    ).format(
-                        count=data['count'],
-                        amount=texts.format_price(data['total_amount_kopeks']),
-                    )
-                    + '\n'
-                )
-
-        referral_text += '\n'
-
-    referral_text += texts.t(
-        'REFERRAL_INVITE_FOOTER',
-        '📢 Приглашайте друзей и зарабатывайте!',
     )
+    lines.append('')
+
+    # --- Заработок ---
+    lines.append(texts.t('REFERRAL_INFO_EARNED_TITLE', '💵 <b>Ваш заработок:</b>'))
+    earned_items: list[str] = []
+    if not db_user.is_partner:
+        earned_items.append(
+            texts.t('REFERRAL_INFO_EARNED_DAYS', 'Дней к подписке: {n} дн.').format(
+                n=db_user.referral_days_earned or 0
+            )
+        )
+    earned_items.append(
+        texts.t('REFERRAL_INFO_EARNED_BALANCE', 'Бонус на баланс: {amount}').format(amount=earned_balance)
+    )
+    lines.append(_render_tree(earned_items))
+    lines.append('')
+
+    # --- Ссылки ---
+    lines.append(texts.t('REFERRAL_INFO_LINKS_TITLE', '🔗 <b>Ваши ссылки:</b>'))
+    link_items = [
+        texts.t('REFERRAL_INFO_LINK_BOT', 'Бот: {link}').format(link=html_escape(bot_referral_link)),
+    ]
+    if cabinet_referral_link:
+        link_items.append(
+            texts.t('REFERRAL_INFO_LINK_SITE', 'Сайт: {link}').format(link=html_escape(cabinet_referral_link))
+        )
+    lines.append(_render_tree(link_items))
+
+    referral_text = '\n'.join(lines)
 
     await edit_or_answer_photo(
         callback,
