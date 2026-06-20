@@ -10,9 +10,8 @@ from app.utils.button_styles_cache import CALLBACK_TO_SECTION, get_cached_button
 # Единый URL мини-приложения «Личный кабинет». Используется кнопкой в главном
 # меню и во всех push-уведомлениях бота, чтобы юзер всегда возвращался в один
 # и тот же интерфейс кабинета.
-# CUSTOM-UI: берём базовый домен кабинета из CABINET_URL (на деве = keldari.online,
-# тестовый домен), а не хардкодим прод vernovpn.com.
-CABINET_MINIAPP_URL = ((settings.CABINET_URL or '').strip().rstrip('/') or 'https://keldari.online') + '/login'
+# CUSTOM-UI: базовый домен кабинета берём из CABINET_URL; фолбэк — прод-домен.
+CABINET_MINIAPP_URL = ((settings.CABINET_URL or '').strip().rstrip('/') or 'https://vernovpn.com') + '/login'
 
 
 def build_cabinet_webapp_button(language: str | None = None) -> InlineKeyboardButton:

@@ -86,7 +86,7 @@ async def get_main_menu_keyboard_async(
                 ]
             )
 
-    # CUSTOM-UI: [Открыть приложение] — WebApp нашего кабинета (keldari.online). В white-label
+    # CUSTOM-UI: [Открыть приложение] — WebApp нашего кабинета. В white-label
     # клонах его не показываем: это наш бренд, клиентам ресселера он ни к чему.
     from app.utils.clone_context import is_clone_context
 
