@@ -28,9 +28,12 @@
 # Скрипты
 !install_bot.sh
 !main.py
+!cloner.py
 
 # Статические файлы
 !vpn_logo.png
+!post.png
+!storis.png
 
 # ========== WHITELIST: разрешённые папки ==========
 
