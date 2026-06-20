@@ -110,7 +110,7 @@ async def get_main_menu_keyboard_async(
     rows.append(
         [
             InlineKeyboardButton(
-                text=texts.t('CUSTOM_MAIN_MENU_REF_BUTTON', '🪙 ЗАРАБОТАТЬ'),
+                text=texts.t('CUSTOM_MAIN_MENU_REF_BUTTON', '💸 ЗАРАБОТАТЬ'),
                 callback_data='menu_referrals',
                 style='success',
             )
@@ -2377,16 +2377,17 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
             ]
         )
     # «Стать партнёром» — бренд-нейтральная партнёрка (как в кабинете), показываем
-    # везде: и в основном боте, и в клонах.
-    keyboard.append(
-        [
-            InlineKeyboardButton(
-                text=texts.t('CUSTOM_REF_PARTNER_BUTTON', '🤝 Стать партнёром'),
-                callback_data='partner_info',
-                style='primary',
-            )
-        ]
-    )
+    # везде: и в основном боте, и в клонах. Скрываем для уже одобрённых партнёров.
+    if not is_partner:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CUSTOM_REF_PARTNER_BUTTON', '🤝 Стать партнёром'),
+                    callback_data='partner_info',
+                    style='primary',
+                )
+            ]
+        )
     # «Список рефералов» и «Аналитика» убраны по требованию. «Показать QR» переехал
     # внутрь экрана «Пригласить друга» (referral_create_invite) — рядом с кнопкой
     # «Поделиться», чтобы всё про распространение ссылки было в одном месте.
@@ -2396,7 +2397,7 @@ def get_referral_keyboard(language: str = DEFAULT_LANGUAGE, is_partner: bool = F
         keyboard.append(
             [
                 InlineKeyboardButton(
-                    text=texts.t('REFERRAL_WITHDRAWAL_BUTTON', '💸 Запросить вывод'),
+                    text=texts.t('REFERRAL_WITHDRAWAL_BUTTON', '🪙 Запросить вывод'),
                     callback_data='referral_withdrawal',
                 )
             ]

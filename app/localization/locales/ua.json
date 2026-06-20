@@ -1672,7 +1672,7 @@
   "SUBSCRIPTION_REVOKE_ERROR": "❌ Помилка при перевипуску підписки. Спробуйте пізніше.",
   "SUBSCRIPTION_REVOKE_CONNECT_BTN": "🔗 Підключитися",
   "PAYMENT_CLOUDPAYMENTS": "💳 Банківська картка (CloudPayments)",
-  "REFERRAL_WITHDRAWAL_BUTTON": "💸 Запросити виведення",
+  "REFERRAL_WITHDRAWAL_BUTTON": "🪙 Запросити виведення",
   "DEVICE_RENAME_BUTTON": "✏️",
   "PAYMENT_METHODS_NONE_AVAILABLE": "💳 <b>Способи поповнення балансу</b>\n\n⚠️ Наразі способи оплати тимчасово недоступні.\nСпробуйте пізніше.\n\nОберіть спосіб поповнення:",
   "PROMOCODE_SUBSCRIPTION_NOT_FOUND": "❌ Підписку не знайдено",

@@ -1801,7 +1801,7 @@
   "SUBSCRIPTION_REVOKE_ERROR": "❌ خطا در صدور مجدد اشتراک. لطفاً بعداً دوباره امتحان کنید.",
   "SUBSCRIPTION_REVOKE_CONNECT_BTN": "🔗 اتصال",
   "PAYMENT_CLOUDPAYMENTS": "💳 کارت بانکی (CloudPayments)",
-  "REFERRAL_WITHDRAWAL_BUTTON": "💸 درخواست برداشت",
+  "REFERRAL_WITHDRAWAL_BUTTON": "🪙 درخواست برداشت",
   "DEVICE_RENAME_BUTTON": "✏️",
   "PAYMENT_METHODS_NONE_AVAILABLE": "💳 <b>روش‌های شارژ موجودی</b>\n\n⚠️ در حال حاضر روش‌های پرداخت موقتاً در دسترس نیستند.\nبعداً تلاش کنید.\n\nروش شارژ را انتخاب کنید:",
   "PROMOCODE_SUBSCRIPTION_NOT_FOUND": "❌ اشتراک یافت نشد",

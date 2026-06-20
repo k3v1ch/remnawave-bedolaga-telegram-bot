@@ -150,3 +150,131 @@ class TestCloneSubscriptionKeyboard:
         assert 'custom_profile' not in cbs  # Профиль убран
         assert 'menu_balance' in cbs  # Баланс остаётся
         assert 'custom_manage' in cbs  # Управление остаётся
+
+
+class TestCloneOwnerTopupReward:
+    """Награда владельцу клон-бота: партнёр → %, не партнёр → +дни; с гардами."""
+
+    def _user(self, *, uid, clone_bot_id=None, referred_by_id=None):
+        u = MagicMock()
+        u.id = uid
+        u.clone_bot_id = clone_bot_id
+        u.referred_by_id = referred_by_id
+        u.full_name = f'User{uid}'
+        return u
+
+    def _owner(self, *, uid, is_partner, percent=20):
+        o = MagicMock()
+        o.id = uid
+        o.is_partner = is_partner
+        o.telegram_id = 1000 + uid
+        o.referral_commission_percent = percent
+        return o
+
+    def _patch(self, monkeypatch, *, buyer, owner, clone=True):
+        import app.services.referral_service as rs
+
+        async def fake_get_user_by_id(db, uid):
+            if uid == buyer.id:
+                return buyer
+            if owner and uid == owner.id:
+                return owner
+            return None
+
+        async def fake_get_clone_bot(db, cid):
+            return MagicMock(owner_user_id=owner.id, bot_username='aiusdaoudhbot') if (clone and owner) else None
+
+        monkeypatch.setattr(rs, 'get_user_by_id', fake_get_user_by_id)
+        monkeypatch.setattr('app.database.crud.clone_bot.get_clone_bot', fake_get_clone_bot)
+
+        balance = AsyncMock(return_value=True)
+        days = AsyncMock(return_value=10)  # начислено 10 дней
+        earning = AsyncMock()
+        notify = AsyncMock()
+        monkeypatch.setattr(rs, 'add_user_balance', balance)
+        monkeypatch.setattr(rs, '_award_inviter_topup_days', days)
+        monkeypatch.setattr(rs, 'create_referral_earning', earning)
+        monkeypatch.setattr(rs, 'send_referral_notification', notify)
+        self._notify = notify
+        return balance, days, earning
+
+    @pytest.mark.asyncio
+    async def test_partner_owner_gets_commission_no_days(self, monkeypatch):
+        from app.services.referral_service import process_clone_owner_topup
+
+        buyer = self._user(uid=2, clone_bot_id=7)
+        owner = self._owner(uid=1, is_partner=True, percent=20)
+        balance, days, earning = self._patch(monkeypatch, buyer=buyer, owner=owner)
+
+        await process_clone_owner_topup(AsyncMock(), buyer.id, 100000, bot=MagicMock())
+
+        assert balance.await_count == 1
+        assert balance.await_args.args[2] == 20000  # 20% от 1000₽
+        assert days.await_count == 0
+        assert earning.await_count == 1
+        assert self._notify.await_count == 1  # владелец уведомлён о доходе
+
+    @pytest.mark.asyncio
+    async def test_non_partner_owner_gets_days_above_min(self, monkeypatch):
+        from app.services.referral_service import process_clone_owner_topup
+
+        buyer = self._user(uid=2, clone_bot_id=7)
+        owner = self._owner(uid=1, is_partner=False)
+        balance, days, earning = self._patch(monkeypatch, buyer=buyer, owner=owner)
+
+        await process_clone_owner_topup(AsyncMock(), buyer.id, settings.REFERRAL_MINIMUM_TOPUP_KOPEKS, bot=MagicMock())
+
+        assert days.await_count == 1
+        assert days.await_args.kwargs['earning_reason'] == 'clone_owner_topup_days'
+        assert days.await_args.kwargs['bot'] is None  # реф-текст заглушён
+        assert balance.await_count == 0
+        assert self._notify.await_count == 1  # владелец уведомлён клон-текстом
+
+    @pytest.mark.asyncio
+    async def test_non_partner_below_min_no_reward(self, monkeypatch):
+        from app.services.referral_service import process_clone_owner_topup
+
+        buyer = self._user(uid=2, clone_bot_id=7)
+        owner = self._owner(uid=1, is_partner=False)
+        balance, days, _ = self._patch(monkeypatch, buyer=buyer, owner=owner)
+
+        await process_clone_owner_topup(AsyncMock(), buyer.id, settings.REFERRAL_MINIMUM_TOPUP_KOPEKS - 1, bot=MagicMock())
+
+        assert days.await_count == 0
+        assert balance.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_no_clone_bot_id_skips(self, monkeypatch):
+        from app.services.referral_service import process_clone_owner_topup
+
+        buyer = self._user(uid=2, clone_bot_id=None)
+        owner = self._owner(uid=1, is_partner=True)
+        balance, days, _ = self._patch(monkeypatch, buyer=buyer, owner=owner)
+
+        await process_clone_owner_topup(AsyncMock(), buyer.id, 100000, bot=MagicMock())
+
+        assert balance.await_count == 0 and days.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_self_purchase_skips(self, monkeypatch):
+        from app.services.referral_service import process_clone_owner_topup
+
+        buyer = self._user(uid=1, clone_bot_id=7)  # покупатель == владелец
+        owner = self._owner(uid=1, is_partner=True)
+        balance, days, _ = self._patch(monkeypatch, buyer=buyer, owner=owner)
+
+        await process_clone_owner_topup(AsyncMock(), buyer.id, 100000, bot=MagicMock())
+
+        assert balance.await_count == 0 and days.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_owner_is_referrer_skips_double_pay(self, monkeypatch):
+        from app.services.referral_service import process_clone_owner_topup
+
+        buyer = self._user(uid=2, clone_bot_id=7, referred_by_id=1)
+        owner = self._owner(uid=1, is_partner=True)
+        balance, days, _ = self._patch(monkeypatch, buyer=buyer, owner=owner)
+
+        await process_clone_owner_topup(AsyncMock(), buyer.id, 100000, bot=MagicMock())
+
+        assert balance.await_count == 0 and days.await_count == 0

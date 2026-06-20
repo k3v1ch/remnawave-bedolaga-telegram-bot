@@ -1780,7 +1780,7 @@
   "SUBSCRIPTION_REVOKE_ERROR": "❌ Error reissuing subscription. Please try again later.",
   "SUBSCRIPTION_REVOKE_CONNECT_BTN": "🔗 Connect",
   "PAYMENT_CLOUDPAYMENTS": "💳 Bank card (CloudPayments)",
-  "REFERRAL_WITHDRAWAL_BUTTON": "💸 Request a withdrawal",
+  "REFERRAL_WITHDRAWAL_BUTTON": "🪙 Request a withdrawal",
   "DEVICE_RENAME_BUTTON": "✏️",
   "PAYMENT_METHODS_NONE_AVAILABLE": "💳 <b>Balance top-up methods</b>\n\n⚠️ Payment methods are temporarily unavailable.\nPlease try later.\n\nChoose a top-up method:",
   "PROMOCODE_SUBSCRIPTION_NOT_FOUND": "❌ Subscription not found",

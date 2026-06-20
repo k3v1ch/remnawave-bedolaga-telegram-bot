@@ -641,7 +641,161 @@ async def process_referral_registration(db: AsyncSession, new_user_id: int, refe
         return False
 
 
+async def process_clone_owner_topup(db: AsyncSession, user_id: int, topup_amount_kopeks: int, bot: Bot = None):
+    """Вознаграждение владельцу white-label клон-бота за пополнение приведённого им юзера.
+
+    Зеркалит логику ``process_referral_topup``, но получатель — не реферер, а
+    ВЛАДЕЛЕЦ клон-бота (``user.clone_bot_id`` → ``CloneBot.owner_user_id``):
+
+      • владелец-партнёр (``owner.is_partner``) → ПРОЦЕНТ с пополнения на баланс
+        (выводимо через тот же partner-flow, что и реф-комиссия);
+      • владелец без партнёрки → +``REFERRAL_INVITER_TOPUP_BONUS_DAYS`` к ЕГО
+        подписке за каждое пополнение от ``REFERRAL_MINIMUM_TOPUP_KOPEKS``.
+
+    База — то же «реальное пополнение», что прилетает из платёжных шлюзов.
+    Ошибки глотаются: награда не должна ронять обработку платежа.
+    """
+    try:
+        user = await get_user_by_id(db, user_id)
+        if not user or not user.clone_bot_id:
+            return True
+
+        from app.database.crud.clone_bot import get_clone_bot
+
+        clone = await get_clone_bot(db, user.clone_bot_id)
+        if not clone:
+            return True
+
+        owner = await get_user_by_id(db, clone.owner_user_id)
+        if not owner:
+            logger.error(
+                'Владелец клон-бота не найден, награда не начислена',
+                clone_bot_id=user.clone_bot_id,
+                user_id=user_id,
+            )
+            return False
+
+        # Самопокупка в собственном боте — не платим самому себе.
+        if owner.id == user.id:
+            return True
+
+        # Если владелец одновременно реферер этого юзера — реф-комиссию он уже
+        # получает в process_referral_topup; не платим дважды.
+        if user.referred_by_id and owner.id == user.referred_by_id:
+            logger.info(
+                'Владелец клона = реферер юзера, награда владельцу пропущена (реф-комиссия уже начислена)',
+                owner_id=owner.id,
+                user_id=user_id,
+            )
+            return True
+
+        logger.info(
+            'Обработка пополнения клон-юзера для владельца',
+            user_id=user_id,
+            owner_id=owner.id,
+            clone_bot_id=user.clone_bot_id,
+            topup_amount_kopeks=topup_amount_kopeks,
+            owner_is_partner=owner.is_partner,
+        )
+
+        # Уведомление владельцу всегда шлём ГЛАВНЫМ ботом: оплата могла прийти
+        # внутри клон-бота (напр. Stars), а клон не может написать владельцу,
+        # если тот не нажимал /start в собственном клоне. Главный бот владелец
+        # точно использует (через него управляет клонами). Fallback — bot из шлюза.
+        from app.services.maintenance_service import maintenance_service
+
+        notify_bot = maintenance_service._bot or bot
+        bot_tag = f'@{clone.bot_username}' if clone.bot_username else ''
+
+        if owner.is_partner:
+            commission_percent = get_effective_referral_commission_percent(owner)
+            if commission_percent <= 0:
+                return True
+            commission_amount = int(topup_amount_kopeks * commission_percent / 100)
+            if commission_amount <= 0:
+                return True
+
+            balance_ok = await add_user_balance(
+                db,
+                owner,
+                commission_amount,
+                f'Доход с клон-бота {commission_percent}% с пополнения {user.full_name}',
+                transaction_type=TransactionType.REFERRAL_REWARD,
+                bot=bot,
+            )
+            if balance_ok:
+                await create_referral_earning(
+                    db=db,
+                    user_id=owner.id,
+                    referral_id=user.id,
+                    amount_kopeks=commission_amount,
+                    reason='clone_owner_commission_topup',
+                )
+                logger.info(
+                    '💰 Доход владельца клона с пополнения начислен на баланс',
+                    owner_id=owner.id,
+                    commission_amount=commission_amount / 100,
+                )
+                if notify_bot:
+                    await send_referral_notification(
+                        notify_bot,
+                        owner.telegram_id,
+                        (
+                            f'💰 <b>Доход с вашего бота {html.escape(bot_tag)}!</b>\n\n'
+                            f'🎉 Через вашего бота пользователь <b>{html.escape(user.full_name)}</b> '
+                            f'пополнил баланс на {settings.format_price(topup_amount_kopeks)}\n\n'
+                            f'🎁 Ваш доход ({commission_percent}%): '
+                            f'{settings.format_price(commission_amount)}\n\n'
+                            f'💎 Средства уже зачислены на ваш баланс. Так держать!'
+                        ),
+                        user=owner,
+                        referral_name=user.full_name,
+                    )
+        else:
+            # Не партнёр — бонусные дни за пополнение от минимума.
+            # bot=None: глушим реферальный текст _award_inviter_topup_days,
+            # шлём ниже своё, клон-брендированное уведомление главным ботом.
+            if topup_amount_kopeks >= settings.REFERRAL_MINIMUM_TOPUP_KOPEKS:
+                awarded_days = await _award_inviter_topup_days(
+                    db,
+                    owner,
+                    user,
+                    topup_amount_kopeks,
+                    bot=None,
+                    earning_reason='clone_owner_topup_days',
+                )
+                if awarded_days and notify_bot:
+                    await send_referral_notification(
+                        notify_bot,
+                        owner.telegram_id,
+                        (
+                            f'🎉 <b>Через вашего бота новая продажа!</b>\n\n'
+                            f'Пользователь <b>{html.escape(user.full_name)}</b> пополнил баланс на '
+                            f'{settings.format_price(topup_amount_kopeks)} в вашем боте '
+                            f'{html.escape(bot_tag)}\n\n'
+                            f'⏰ Ваш бонус: <b>+{awarded_days} дн.</b> к подписке — уже добавлены. '
+                            f'Так держать! 🚀'
+                        ),
+                        user=owner,
+                        referral_name=user.full_name,
+                    )
+
+        return True
+
+    except Exception as e:
+        logger.error('Ошибка начисления награды владельцу клон-бота', error=str(e), user_id=user_id)
+        return False
+
+
 async def process_referral_topup(db: AsyncSession, user_id: int, topup_amount_kopeks: int, bot: Bot = None):
+    # Награда владельцу клон-бота — отдельный от рефералки трек, начисляется
+    # даже если у юзера нет реферера. Зовётся здесь, т.к. эту функцию вызывают
+    # ВСЕ платёжные шлюзы → единая точка хука без правки ~25 провайдеров.
+    try:
+        await process_clone_owner_topup(db, user_id, topup_amount_kopeks, bot=bot)
+    except Exception as e:
+        logger.error('process_clone_owner_topup failed (платёж не затронут)', error=str(e), user_id=user_id)
+
     try:
         user = await get_user_by_id(db, user_id)
         if not user or not user.referred_by_id:
@@ -1054,8 +1208,13 @@ async def _resolve_default_bonus_tariff(db: AsyncSession):
 
 
 async def _award_inviter_topup_days(
-    db: AsyncSession, referrer: User, user: User, topup_amount_kopeks: int, bot: Bot = None
-) -> None:
+    db: AsyncSession,
+    referrer: User,
+    user: User,
+    topup_amount_kopeks: int,
+    bot: Bot = None,
+    earning_reason: str = 'referral_inviter_topup_days',
+) -> int:
     """Фиксированный бонус днями пригласившему за пополнение реферала.
 
     Начисляется за КАЖДОЕ пополнение реферала от REFERRAL_MINIMUM_TOPUP_KOPEKS
@@ -1070,7 +1229,7 @@ async def _award_inviter_topup_days(
     """
     bonus_days = settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS
     if bonus_days <= 0:
-        return
+        return 0
 
     if referrer.is_partner:
         logger.info(
@@ -1078,7 +1237,7 @@ async def _award_inviter_topup_days(
             referrer_id=referrer.id,
             user_id=user.id,
         )
-        return
+        return 0
 
     try:
         from app.database.crud.subscription import (
@@ -1101,7 +1260,7 @@ async def _award_inviter_topup_days(
                     'бонусные дни не начислены',
                     referrer_id=referrer.id,
                 )
-                return
+                return 0
             referrer_sub = await create_paid_subscription(
                 db,
                 referrer.id,
@@ -1112,7 +1271,7 @@ async def _award_inviter_topup_days(
                 tariff_id=tariff.id,
             )
         if referrer_sub is None:
-            return
+            return 0
         await _sync_bonus_subscription(db, subscription_service, referrer_sub, referrer)
 
         # Служебная запись для журнала/статистики; amount=0 — на вывод не влияет.
@@ -1121,7 +1280,7 @@ async def _award_inviter_topup_days(
             user_id=referrer.id,
             referral_id=user.id,
             amount_kopeks=0,
-            reason='referral_inviter_topup_days',
+            reason=earning_reason,
         )
 
         # Суммарно заработанные дни — для экрана реф-статистики (SCR-REF).
@@ -1149,6 +1308,8 @@ async def _award_inviter_topup_days(
                 referral_name=user.full_name,
             )
 
+        return bonus_days
+
     except Exception as e:
         logger.error(
             'Ошибка начисления бонусных дней пригласившему',
@@ -1156,3 +1317,4 @@ async def _award_inviter_topup_days(
             referral_id=user.id,
             error=e,
         )
+        return 0

@@ -1670,7 +1670,7 @@
   "SUBSCRIPTION_REVOKE_ERROR": "❌ 重新签发订阅时出错。请稍后重试。",
   "SUBSCRIPTION_REVOKE_CONNECT_BTN": "🔗 连接",
   "PAYMENT_CLOUDPAYMENTS": "💳 银行卡 (CloudPayments)",
-  "REFERRAL_WITHDRAWAL_BUTTON": "💸 申请提现",
+  "REFERRAL_WITHDRAWAL_BUTTON": "🪙 申请提现",
   "DEVICE_RENAME_BUTTON": "✏️",
   "PAYMENT_METHODS_NONE_AVAILABLE": "💳 <b>余额充值方式</b>\n\n⚠️ 目前支付方式暂时不可用。\n请稍后再试。\n\n请选择充值方式：",
   "PROMOCODE_SUBSCRIPTION_NOT_FOUND": "❌ 未找到订阅",
