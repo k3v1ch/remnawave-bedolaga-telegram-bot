@@ -338,12 +338,41 @@ async def switch_tariff(
     if upgrade_cost > 0:
         if user.balance_kopeks < upgrade_cost:
             missing = upgrade_cost - user.balance_kopeks
+            # Сохраняем корзину для автосмены тарифа после пополнения баланса —
+            # как в боте (handlers/subscription/tariff_purchase.py). Хук
+            # auto_purchase_saved_cart_after_topup выполнит смену сам.
+            try:
+                from app.services.user_cart_service import user_cart_service
+
+                await user_cart_service.save_user_cart(
+                    user.id,
+                    {
+                        'cart_mode': 'tariff_switch',
+                        'switch_kind': 'instant',
+                        'tariff_id': new_tariff.id,
+                        'subscription_id': subscription.id,
+                        'user_id': user.id,
+                        # total_price обязателен: гейт в payment/common.py
+                        # (send_cart_notification_after_topup) отбрасывает
+                        # глобальные корзины без него.
+                        'total_price': upgrade_cost,
+                        'missing_amount': missing,
+                        'saved_cart': True,
+                        'return_to_cart': True,
+                        'source': 'cabinet',
+                    },
+                )
+                logger.info('Cart saved for auto-switch (cabinet /tariff/switch)', user_id=user.id, tariff_id=new_tariff.id)
+            except Exception as cart_error:
+                logger.error('Error saving cart for auto-switch (cabinet /tariff/switch)', cart_error=cart_error)
+
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail={
                     'code': 'insufficient_funds',
                     'message': f'Insufficient funds. Missing {settings.format_price(missing, round_kopeks=False)}',
                     'missing_amount': missing,
+                    'cart_saved': True,
                 },
             )
 
