@@ -7,6 +7,7 @@
 Медиа: пост составляется в основном боте, поэтому ``media_file_id`` чужой для клона
 (file_id в Telegram привязан к боту). Первому получателю фото уходит байтами
 (скачиваем основным ботом), из ответа берём clone-scoped file_id и дальше шлём им.
+Кабинет вместо file_id передаёт байты напрямую (``media_bytes``) — main_bot не нужен.
 """
 
 from __future__ import annotations
@@ -55,11 +56,12 @@ async def run_clone_broadcast(
     broadcast: CloneBroadcast,
     *,
     clone_token: str,
-    main_bot: Bot,
+    main_bot: Bot | None = None,
     owner_chat_id: int | None = None,
+    media_bytes: bytes | None = None,
 ) -> None:
     """Фоновая отправка. Ошибки одной доставки не прерывают рассылку; итог — в БД,
-    владельцу (``owner_chat_id``) уходит отчёт основным ботом."""
+    владельцу (``owner_chat_id``) уходит отчёт основным ботом (если он передан)."""
     broadcast_id = broadcast.id
     clone_bot_id = broadcast.clone_bot_id
     text = broadcast.message_text
@@ -69,13 +71,13 @@ async def run_clone_broadcast(
     async with AsyncSessionLocal() as db:
         recipients = await get_recipient_telegram_ids(db, clone_bot_id)
 
-    media_bytes: bytes | None = None
-    if media_type == 'photo' and broadcast.media_file_id:
-        media_bytes = await _download_media_bytes(main_bot, broadcast.media_file_id)
+    if media_type == 'photo':
+        if media_bytes is None and broadcast.media_file_id and main_bot is not None:
+            media_bytes = await _download_media_bytes(main_bot, broadcast.media_file_id)
         if media_bytes is None:
             async with AsyncSessionLocal() as db:
                 await finish_broadcast(db, broadcast_id, sent=0, failed=0, status='failed')
-            if owner_chat_id:
+            if owner_chat_id and main_bot is not None:
                 try:
                     await main_bot.send_message(owner_chat_id, '❌ Рассылка не запустилась: не удалось обработать фото.')
                 except Exception:
@@ -126,7 +128,7 @@ async def run_clone_broadcast(
 
     logger.info('Clone broadcast finished', broadcast_id=broadcast_id, clone_id=clone_bot_id, sent=sent, failed=failed)
 
-    if owner_chat_id:
+    if owner_chat_id and main_bot is not None:
         try:
             await main_bot.send_message(
                 owner_chat_id,

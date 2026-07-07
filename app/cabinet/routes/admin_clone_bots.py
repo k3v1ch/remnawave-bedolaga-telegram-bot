@@ -8,11 +8,12 @@ a hot-swap event so the cloner host applies changes live (no restart).
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,9 +24,13 @@ from app.database.crud.clone_bot import (
     delete_clone_bot,
     get_brought_users,
     get_clone_bot,
+    get_decrypted_token,
     get_period_stats,
     get_stats_bulk,
     list_clone_bots,
+    set_channel_sub_channel,
+    set_channel_sub_enabled,
+    set_channel_sub_text,
     set_pricing_markup,
     set_status,
     update_profile_title,
@@ -40,8 +45,22 @@ from app.database.crud.clone_bot_link import (
     get_link_stats,
     list_links,
 )
+from app.database.crud.clone_broadcast import (
+    CLONE_BROADCASTS_PER_DAY,
+    count_today,
+    create_broadcast,
+    get_recipient_telegram_ids,
+    list_broadcasts,
+)
 from app.database.models import CloneBot, CloneBotStatus, SubscriptionStatus, User
-from app.services.clone_bot_service import cleanup_squad_on_delete, update_squad_profile_title
+from app.services.clone_bot_service import (
+    CloneChannelVerifyError,
+    cleanup_squad_on_delete,
+    parse_channel_ref,
+    update_squad_profile_title,
+    verify_clone_channel,
+)
+from app.services.clone_broadcast_service import run_clone_broadcast
 from app.services.clone_pricing import MAX_MARKUP_PCT
 from app.services.clone_runtime.coordinator import publish_clone_event
 
@@ -100,10 +119,19 @@ class CloneBroughtUser(BaseModel):
     created_at: datetime | None = None
 
 
+class ChannelSubState(BaseModel):
+    enabled: bool
+    has_channel: bool
+    channel_link: str | None = None
+    channel_title: str | None = None
+    text: str | None = None  # None = стандартный текст заглушки
+
+
 class CloneBotDetail(CloneBotItem):
     owner: CloneOwner | None = None
     active_subscribers: int = 0
     users: list[CloneBroughtUser] = []
+    channel_sub: ChannelSubState | None = None
 
 
 class ToggleResponse(BaseModel):
@@ -167,6 +195,35 @@ class LinkCreateRequest(BaseModel):
     name: str
 
 
+class ChannelSubChannelRequest(BaseModel):
+    channel: str
+
+
+class ChannelSubTextRequest(BaseModel):
+    text: str | None = None
+
+
+class CloneBroadcastItem(BaseModel):
+    id: int
+    status: str
+    message_text: str | None = None
+    media_type: str | None = None
+    button_text: str | None = None
+    button_url: str | None = None
+    show_tariffs_button: bool = False
+    sent_count: int = 0
+    failed_count: int = 0
+    total_count: int = 0
+    created_at: datetime | None = None
+
+
+class CloneBroadcastsResponse(BaseModel):
+    items: list[CloneBroadcastItem]
+    used_today: int
+    per_day_limit: int = CLONE_BROADCASTS_PER_DAY
+    recipients: int = 0
+
+
 def _full_name(user: User) -> str | None:
     parts = [p for p in (user.first_name, user.last_name) if p]
     return ' '.join(parts) if parts else None
@@ -197,6 +254,16 @@ async def _clone_or_404(db: AsyncSession, clone_id: int) -> CloneBot:
     if clone is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='clone_not_found')
     return clone
+
+
+def _channel_sub_state(clone: CloneBot) -> ChannelSubState:
+    return ChannelSubState(
+        enabled=bool(clone.channel_sub_enabled),
+        has_channel=bool(clone.channel_sub_chat_id),
+        channel_link=clone.channel_sub_link,
+        channel_title=clone.channel_sub_title,
+        text=clone.channel_sub_text,
+    )
 
 
 def _link_to_item(link, clone: CloneBot, real_topup_kopeks: int) -> CloneLinkItem:
@@ -287,6 +354,7 @@ async def get_clone_detail(
         owner=owner_dto,
         active_subscribers=active_subscribers,
         users=users,
+        channel_sub=_channel_sub_state(clone),
     )
 
 
@@ -487,3 +555,179 @@ async def delete_clone_link(
     await delete_link(db, link_id)
     logger.info('Admin deleted clone ad link', clone_id=clone_id, link_id=link_id, admin_id=admin.id)
     return {'ok': True}
+
+
+# -- обязательная подписка на канал владельца ---------------------------------------
+
+
+@router.put('/{clone_id}/channel-sub/channel', response_model=ChannelSubState)
+async def set_channel_sub(
+    clone_id: int,
+    payload: ChannelSubChannelRequest,
+    db: AsyncSession = Depends(get_cabinet_db),
+    admin: User = Depends(require_permission('clone_bots:manage')),
+):
+    ref = parse_channel_ref(payload.channel)
+    if ref is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='invalid_channel_ref')
+    clone = await _clone_or_404(db, clone_id)
+    try:
+        chat_id, link, title = await verify_clone_channel(clone, ref)
+    except CloneChannelVerifyError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.code)
+    clone = await set_channel_sub_channel(db, clone_id, chat_id=chat_id, link=link, title=title)
+    await publish_clone_event('reload', clone_id)
+    logger.info('Admin set clone sub channel', clone_id=clone_id, chat_id=chat_id, admin_id=admin.id)
+    return _channel_sub_state(clone)
+
+
+@router.post('/{clone_id}/channel-sub/toggle', response_model=ChannelSubState)
+async def toggle_channel_sub(
+    clone_id: int,
+    db: AsyncSession = Depends(get_cabinet_db),
+    admin: User = Depends(require_permission('clone_bots:manage')),
+):
+    clone = await _clone_or_404(db, clone_id)
+    if not clone.channel_sub_chat_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='channel_not_set')
+    enable = not clone.channel_sub_enabled
+    if enable:
+        # Перед включением перепроверяем, что бот всё ещё админ канала — права могли снять.
+        try:
+            await verify_clone_channel(clone, clone.channel_sub_chat_id)
+        except CloneChannelVerifyError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=e.code)
+    clone = await set_channel_sub_enabled(db, clone_id, enable)
+    await publish_clone_event('reload', clone_id)
+    logger.info('Admin toggled clone channel sub', clone_id=clone_id, enabled=enable, admin_id=admin.id)
+    return _channel_sub_state(clone)
+
+
+@router.patch('/{clone_id}/channel-sub/text', response_model=ChannelSubState)
+async def set_channel_sub_stub_text(
+    clone_id: int,
+    payload: ChannelSubTextRequest,
+    db: AsyncSession = Depends(get_cabinet_db),
+    admin: User = Depends(require_permission('clone_bots:manage')),
+):
+    text = (payload.text or '').strip() or None  # пусто = вернуть стандартный текст
+    if text is not None and len(text) > 1000:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='text_too_long')
+    await _clone_or_404(db, clone_id)
+    clone = await set_channel_sub_text(db, clone_id, text)
+    await publish_clone_event('reload', clone_id)
+    logger.info('Admin set clone sub text', clone_id=clone_id, custom=text is not None, admin_id=admin.id)
+    return _channel_sub_state(clone)
+
+
+# -- рассылки -----------------------------------------------------------------------
+
+_MAX_BROADCAST_PHOTO_BYTES = 10 * 1024 * 1024  # лимит Telegram на фото
+
+
+def _broadcast_to_item(b) -> CloneBroadcastItem:
+    return CloneBroadcastItem(
+        id=b.id,
+        status=b.status,
+        message_text=b.message_text,
+        media_type=b.media_type,
+        button_text=b.button_text,
+        button_url=b.button_url,
+        show_tariffs_button=bool(b.show_tariffs_button),
+        sent_count=b.sent_count or 0,
+        failed_count=b.failed_count or 0,
+        total_count=b.total_count or 0,
+        created_at=b.created_at,
+    )
+
+
+@router.get('/{clone_id}/broadcasts', response_model=CloneBroadcastsResponse)
+async def list_clone_broadcasts(
+    clone_id: int,
+    db: AsyncSession = Depends(get_cabinet_db),
+    admin: User = Depends(require_permission('clone_bots:read')),
+):
+    await _clone_or_404(db, clone_id)
+    items = await list_broadcasts(db, clone_id, limit=10)
+    used_today = await count_today(db, clone_id)
+    recipients = len(await get_recipient_telegram_ids(db, clone_id))
+    return CloneBroadcastsResponse(
+        items=[_broadcast_to_item(b) for b in items],
+        used_today=used_today,
+        recipients=recipients,
+    )
+
+
+@router.post('/{clone_id}/broadcasts', response_model=CloneBroadcastItem)
+async def create_clone_broadcast(
+    clone_id: int,
+    text: str | None = Form(None),
+    button_text: str | None = Form(None),
+    button_url: str | None = Form(None),
+    show_tariffs: bool = Form(False),
+    photo: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_cabinet_db),
+    admin: User = Depends(require_permission('clone_bots:manage')),
+):
+    """Запустить рассылку от имени клон-бота по его юзерам (лимит в сутки — как в боте).
+
+    Фото уходит байтами напрямую в ``run_clone_broadcast`` (в кабинете нет file_id
+    основного бота), текст — подписью. Отправка фоновая; статус — в списке рассылок.
+    """
+    clone = await _clone_or_404(db, clone_id)
+
+    text = (text or '').strip() or None
+    button_text = (button_text or '').strip() or None
+    button_url = (button_url or '').strip() or None
+
+    photo_bytes: bytes | None = None
+    if photo is not None:
+        if not (photo.content_type or '').startswith('image/'):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='invalid_photo')
+        photo_bytes = await photo.read()
+        if not photo_bytes:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='invalid_photo')
+        if len(photo_bytes) > _MAX_BROADCAST_PHOTO_BYTES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='photo_too_large')
+
+    if photo_bytes is not None:
+        if text is not None and len(text) > 1024:  # лимит Telegram на caption
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='text_too_long')
+    else:
+        if text is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='invalid_text')
+        if len(text) > 4000:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='text_too_long')
+
+    if bool(button_text) != bool(button_url) or (
+        button_url and not button_url.startswith(('http://', 'https://'))
+    ):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='invalid_button')
+
+    if await count_today(db, clone_id) >= CLONE_BROADCASTS_PER_DAY:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='broadcasts_limit_reached')
+    recipients = await get_recipient_telegram_ids(db, clone_id)
+    if not recipients:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='no_recipients')
+
+    broadcast = await create_broadcast(
+        db,
+        clone_id,
+        message_text=text,
+        media_type='photo' if photo_bytes is not None else None,
+        media_file_id=None,
+        button_text=button_text[:64] if button_text else None,
+        button_url=button_url,
+        show_tariffs_button=show_tariffs,
+        total_count=len(recipients),
+    )
+    token = get_decrypted_token(clone)
+    asyncio.create_task(run_clone_broadcast(broadcast, clone_token=token, media_bytes=photo_bytes))
+    logger.info(
+        'Admin started clone broadcast',
+        clone_id=clone_id,
+        broadcast_id=broadcast.id,
+        recipients=len(recipients),
+        admin_id=admin.id,
+    )
+    return _broadcast_to_item(broadcast)

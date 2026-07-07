@@ -38,7 +38,12 @@ from app.database.crud.clone_bot import (
 )
 from app.database.models import CloneBot, CloneBotStatus, User
 from app.handlers.clone_bot import start_clone_onboarding
-from app.services.clone_bot_service import update_squad_profile_title
+from app.services.clone_bot_service import (
+    CloneChannelVerifyError,
+    parse_channel_ref,
+    update_squad_profile_title,
+    verify_clone_channel,
+)
 from app.services.clone_runtime.coordinator import publish_clone_event
 from app.states import CloneBotStates
 from app.utils.clone_context import is_clone_context
@@ -415,56 +420,27 @@ CLONE_SUB_DEFAULT_TEXT = (
     'После подписки нажмите «✅ Я подписался».'
 )
 
-_CHANNEL_USERNAME_RE = re.compile(r'^@?([A-Za-z0-9_]{4,32})$')
-_CHANNEL_LINK_RE = re.compile(r'^(?:https?://)?t\.me/([A-Za-z0-9_]{4,32})/?$')
-
-
-def _parse_channel_ref(raw: str) -> str | None:
-    """@username / t.me/username / username → '@username' (или None, если не похоже)."""
-    raw = raw.strip()
-    m = _CHANNEL_LINK_RE.match(raw) or _CHANNEL_USERNAME_RE.match(raw)
-    return f'@{m.group(1)}' if m else None
-
-
 async def _verify_clone_channel(clone: CloneBot, channel_ref: str | int) -> tuple[int, str, str | None] | str:
-    """Проверить канал ЧЕРЕЗ САМОГО клон-бота: канал существует и клон-бот в нём админ
-    (без админки Telegram не даёт боту звать getChatMember по участникам канала).
-
-    Возвращает ``(chat_id, join_link, title)`` или строку с ошибкой для владельца.
-    """
+    """Проверка канала (app/services/clone_bot_service.verify_clone_channel), но с
+    текстом ошибки для владельца вместо кода."""
     try:
-        probe = create_bot(token=get_decrypted_token(clone))
-    except Exception:
-        return '❌ Не удалось подключиться к вашему боту. Попробуйте позже.'
-    try:
-        try:
-            chat = await probe.get_chat(channel_ref)
-        except Exception:
-            return (
+        return await verify_clone_channel(clone, channel_ref)
+    except CloneChannelVerifyError as e:
+        messages = {
+            'clone_unavailable': '❌ Не удалось подключиться к вашему боту. Попробуйте позже.',
+            'channel_not_found': (
                 '❌ Канал не найден. Проверьте, что прислали правильный @юзернейм '
                 'публичного канала.'
-            )
-        if chat.type != 'channel':
-            return '❌ Это не канал. Пришлите @юзернейм именно канала.'
-        try:
-            member = await probe.get_chat_member(chat.id, clone.bot_id)
-        except Exception:
-            member = None
-        if member is None or member.status not in ('administrator', 'creator'):
-            return (
+            ),
+            'not_a_channel': '❌ Это не канал. Пришлите @юзернейм именно канала.',
+            'bot_not_admin': (
                 f'❌ Бот @{clone.bot_username} не является администратором канала '
                 f'{channel_ref}.\n\nДобавьте бота в канал как администратора '
                 '(достаточно без особых прав) и пришлите @юзернейм ещё раз.'
-            )
-        link = f'https://t.me/{chat.username}' if chat.username else (chat.invite_link or '')
-        if not link:
-            return '❌ Не удалось получить ссылку на канал. Канал должен быть публичным (с @юзернеймом).'
-        return chat.id, link, chat.title
-    finally:
-        try:
-            await probe.session.close()
-        except Exception:
-            pass
+            ),
+            'no_public_link': '❌ Не удалось получить ссылку на канал. Канал должен быть публичным (с @юзернеймом).',
+        }
+        return messages.get(e.code, '❌ Не удалось проверить канал. Попробуйте позже.')
 
 
 async def _render_channel_sub(clone: CloneBot) -> tuple[str, InlineKeyboardMarkup]:
@@ -567,7 +543,7 @@ async def process_sub_channel(
 ):
     if await _cancelled(message, state):
         return
-    ref = _parse_channel_ref(message.text or '')
+    ref = parse_channel_ref(message.text or '')
     if ref is None:
         await message.answer('❌ Не похоже на @юзернейм канала. Пример: <code>@my_channel</code>. Или /cancel.')
         return

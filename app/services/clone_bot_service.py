@@ -13,6 +13,8 @@ same field via ``subscriptionSettings``.
 
 from __future__ import annotations
 
+import re
+
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +22,65 @@ from app.database.models import CloneBot, Tariff
 
 
 logger = structlog.get_logger(__name__)
+
+_CHANNEL_USERNAME_RE = re.compile(r'^@?([A-Za-z0-9_]{4,32})$')
+_CHANNEL_LINK_RE = re.compile(r'^(?:https?://)?t\.me/([A-Za-z0-9_]{4,32})/?$')
+
+
+def parse_channel_ref(raw: str) -> str | None:
+    """@username / t.me/username / username → '@username' (или None, если не похоже)."""
+    raw = raw.strip()
+    m = _CHANNEL_LINK_RE.match(raw) or _CHANNEL_USERNAME_RE.match(raw)
+    return f'@{m.group(1)}' if m else None
+
+
+class CloneChannelVerifyError(Exception):
+    """Канал обязательной подписки не прошёл проверку.
+
+    ``code``: clone_unavailable / channel_not_found / not_a_channel / bot_not_admin /
+    no_public_link. Тексты для людей рисуют вызывающие стороны (бот, кабинет).
+    """
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+async def verify_clone_channel(clone: CloneBot, channel_ref: str | int) -> tuple[int, str, str | None]:
+    """Проверить канал ЧЕРЕЗ САМОГО клон-бота: канал существует и клон-бот в нём админ
+    (без админки Telegram не даёт боту звать getChatMember по участникам канала).
+
+    Возвращает ``(chat_id, join_link, title)`` или бросает :class:`CloneChannelVerifyError`.
+    """
+    from app.bot_factory import create_bot
+    from app.database.crud.clone_bot import get_decrypted_token
+
+    try:
+        probe = create_bot(token=get_decrypted_token(clone))
+    except Exception:
+        raise CloneChannelVerifyError('clone_unavailable')
+    try:
+        try:
+            chat = await probe.get_chat(channel_ref)
+        except Exception:
+            raise CloneChannelVerifyError('channel_not_found')
+        if chat.type != 'channel':
+            raise CloneChannelVerifyError('not_a_channel')
+        try:
+            member = await probe.get_chat_member(chat.id, clone.bot_id)
+        except Exception:
+            member = None
+        if member is None or member.status not in ('administrator', 'creator'):
+            raise CloneChannelVerifyError('bot_not_admin')
+        link = f'https://t.me/{chat.username}' if chat.username else (chat.invite_link or '')
+        if not link:
+            raise CloneChannelVerifyError('no_public_link')
+        return chat.id, link, chat.title
+    finally:
+        try:
+            await probe.session.close()
+        except Exception:
+            pass
 
 
 async def provision_squad(name: str, profile_title: str | None) -> tuple[str, str]:

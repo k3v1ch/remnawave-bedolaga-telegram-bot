@@ -172,14 +172,14 @@ class TestCloneChannelSubGate:
 
 class TestChannelRefParsing:
     def test_parse_variants(self) -> None:
-        from app.handlers.custom_reseller import _parse_channel_ref
+        from app.services.clone_bot_service import parse_channel_ref
 
-        assert _parse_channel_ref('@my_channel') == '@my_channel'
-        assert _parse_channel_ref('my_channel') == '@my_channel'
-        assert _parse_channel_ref('https://t.me/my_channel') == '@my_channel'
-        assert _parse_channel_ref('t.me/my_channel/') == '@my_channel'
-        assert _parse_channel_ref('не канал!') is None
-        assert _parse_channel_ref('https://t.me/+privateinvite') is None
+        assert parse_channel_ref('@my_channel') == '@my_channel'
+        assert parse_channel_ref('my_channel') == '@my_channel'
+        assert parse_channel_ref('https://t.me/my_channel') == '@my_channel'
+        assert parse_channel_ref('t.me/my_channel/') == '@my_channel'
+        assert parse_channel_ref('не канал!') is None
+        assert parse_channel_ref('https://t.me/+privateinvite') is None
 
 
 class TestSnapshotFields:
