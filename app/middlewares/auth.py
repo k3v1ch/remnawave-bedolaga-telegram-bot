@@ -71,7 +71,10 @@ class AuthMiddleware(BaseMiddleware):
 
                     is_reg_process = is_registration_process(event, current_state)
 
-                    is_channel_check = isinstance(event, CallbackQuery) and event.data == 'sub_channel_check'
+                    is_channel_check = isinstance(event, CallbackQuery) and event.data in (
+                        'sub_channel_check',
+                        'clonesub_check',
+                    )
 
                     is_start_command = isinstance(event, Message) and event.text and event.text.startswith('/start')
 

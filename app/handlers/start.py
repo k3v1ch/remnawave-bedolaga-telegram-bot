@@ -2583,7 +2583,7 @@ async def get_main_menu_text_simple(user_name, texts, db: AsyncSession):
 
 
 async def required_sub_channel_check(
-    query: types.CallbackQuery, bot: Bot, state: FSMContext, db: AsyncSession, db_user=None
+    query: types.CallbackQuery, bot: Bot, state: FSMContext, db: AsyncSession, db_user=None, clone_bot=None
 ):
     from app.utils.message_patch import _cache_logo_file_id, caption_exceeds_telegram_limit, get_logo_media
 
@@ -2621,14 +2621,21 @@ async def required_sub_channel_check(
 
         texts = get_texts(language)
 
-        # Ensure bot is set on service
-        if not channel_subscription_service.bot:
-            channel_subscription_service.bot = bot
+        if clone_bot is not None:
+            # Клон (callback clonesub_check): свежий getChatMember канала владельца уже
+            # сделан на этом же клике в ChannelCheckerMiddleware._handle_clone_channel_sub —
+            # сюда событие доходит только после успеха. Глобальные required_channels — каналы
+            # ОСНОВНОГО бренда, клон-бот в них не админ, проверять их здесь нельзя.
+            is_subscribed = True
+        else:
+            # Ensure bot is set on service
+            if not channel_subscription_service.bot:
+                channel_subscription_service.bot = bot
 
-        # Invalidate cache for fresh check (user just clicked "I subscribed")
-        await channel_subscription_service.invalidate_user_cache(query.from_user.id)
+            # Invalidate cache for fresh check (user just clicked "I subscribed")
+            await channel_subscription_service.invalidate_user_cache(query.from_user.id)
 
-        is_subscribed = await channel_subscription_service.is_user_subscribed_to_all(query.from_user.id)
+            is_subscribed = await channel_subscription_service.is_user_subscribed_to_all(query.from_user.id)
         if not is_subscribed:
             # НЕ удаляем payload - пользователь может попробовать снова после подписки
             logger.info(
@@ -2737,7 +2744,8 @@ async def required_sub_channel_check(
 
         await query.answer(
             texts.t('CHANNEL_SUBSCRIBE_THANKS', '✅ Спасибо за подписку'),
-            show_alert=True,
+            # На клонах — тост вместо модалки: сразу в меню, без лишнего экрана с «OK».
+            show_alert=clone_bot is None,
         )
 
         try:
@@ -2785,7 +2793,11 @@ async def required_sub_channel_check(
             if pinned_message and pinned_message.send_before_menu:
                 await _send_pinned_message(bot, db, user, pinned_message)
 
-            if settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(menu_text):
+            if clone_bot is not None:
+                # Клон: пропатченный Message.answer — ребрендинг текста и без лого
+                # основного бренда (raw bot.send_* обходит white-label патч).
+                await query.message.answer(menu_text, reply_markup=keyboard)
+            elif settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(menu_text):
                 _result = await bot.send_photo(
                     chat_id=query.from_user.id,
                     photo=get_logo_media(),
@@ -2953,7 +2965,10 @@ async def required_sub_channel_check(
                     if pinned_message and pinned_message.send_before_menu:
                         await _send_pinned_message(bot, db, user, pinned_message)
 
-                    if settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(menu_text):
+                    if clone_bot is not None:
+                        # Клон: пропатченный Message.answer — ребрендинг и без лого бренда.
+                        await query.message.answer(menu_text, reply_markup=keyboard)
+                    elif settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(menu_text):
                         _result = await bot.send_photo(
                             chat_id=query.from_user.id,
                             photo=get_logo_media(),
@@ -2984,7 +2999,10 @@ async def required_sub_channel_check(
             else:
                 rules_text = await get_rules(language)
 
-                if settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(rules_text):
+                if clone_bot is not None:
+                    # Клон: пропатченный Message.answer — ребрендинг и без лого бренда.
+                    await query.message.answer(rules_text, reply_markup=get_rules_keyboard(language))
+                elif settings.ENABLE_LOGO_MODE and not caption_exceeds_telegram_limit(rules_text):
                     _result = await bot.send_photo(
                         chat_id=query.from_user.id,
                         photo=get_logo_media(),
@@ -3096,7 +3114,12 @@ def register_handlers(dp: Dispatcher):
     )
     logger.debug('Зарегистрирован handle_potential_referral_code')
 
-    dp.callback_query.register(required_sub_channel_check, F.data.in_(['sub_channel_check']))
+    # clonesub_check (кнопка «Я подписался» на клонах) ОБЯЗАН иметь хендлер-якорь:
+    # ChannelCheckerMiddleware — inner-миддлварь, без сматчившегося хендлера aiogram её
+    # не вызывает, и callback умирает молча. Успешную проверку миддлварь пропускает сюда —
+    # хендлер удаляет заглушку и сразу отправляет главное меню (clone_bot глушит глобальную
+    # проверку каналов основного бренда).
+    dp.callback_query.register(required_sub_channel_check, F.data.in_(['sub_channel_check', 'clonesub_check']))
     logger.debug('Зарегистрирован required_sub_channel_check')
 
     dp.callback_query.register(

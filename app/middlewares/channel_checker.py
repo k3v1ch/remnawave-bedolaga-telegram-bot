@@ -309,21 +309,11 @@ class ChannelCheckerMiddleware(BaseMiddleware):
             subscribed = await self._clone_member_check(bot, clone.channel_sub_chat_id, telegram_id)
             if subscribed or subscribed is None:
                 await cache.set(cache_key, 1, expire=600)
-                kb = types.InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [types.InlineKeyboardButton(text='🏠 Главное меню', callback_data='back_to_menu')]
-                    ]
-                )
-                try:
-                    await event.message.edit_text('✅ Подписка подтверждена — спасибо!', reply_markup=kb)
-                except TelegramBadRequest as e:
-                    if 'message is not modified' not in str(e).lower():
-                        raise
-                try:
-                    await event.answer()
-                except TelegramAPIError:
-                    pass
-                return None
+                # Без промежуточного экрана: пропускаем клик до якорь-хендлера
+                # required_sub_channel_check (start.py) — он удалит заглушку и сразу
+                # отправит главное меню (или продолжит регистрацию нового юзера).
+                # clone_bot в data подавляет там глобальную проверку каналов.
+                return await handler(event, data)
             try:
                 await event.answer('Вы ещё не подписались на канал. Подпишитесь и попробуйте снова.', show_alert=True)
             except TelegramAPIError:
