@@ -87,17 +87,18 @@ class ChannelCheckerMiddleware(BaseMiddleware):
         event: TelegramObject,
         data: dict[str, Any],
     ) -> Any:
+        # White-label clone bots are never gated behind the MAIN brand's required
+        # channels — but each clone can require ITS OWNER'S channel instead
+        # (CloneBot.channel_sub_*). That branch is independent of the global
+        # CHANNEL_IS_REQUIRED_SUB flag, which only governs the main bot.
+        # data['clone_bot'] is set by TenantContextMiddleware only in the cloner
+        # host; it is always None in the main bot.
+        clone = data.get('clone_bot')
+        if clone is not None:
+            return await self._handle_clone_channel_sub(handler, event, data, clone)
+
         # Runtime check (supports toggling without restart)
         if not settings.CHANNEL_IS_REQUIRED_SUB:
-            return await handler(event, data)
-
-        # White-label clone bots never gate users behind the MAIN brand's required
-        # channels: a reseller's audience has no reason to join our channel, and the
-        # clone bot isn't an admin there to verify membership anyway (getChatMember
-        # would fail and wrongly block everyone). data['clone_bot'] is set by
-        # TenantContextMiddleware only in the cloner host; it is always None in the
-        # main bot, so this leaves the main bot's behaviour untouched.
-        if data.get('clone_bot') is not None:
             return await handler(event, data)
 
         # Fast-path bypasses
@@ -210,6 +211,155 @@ class ChannelCheckerMiddleware(BaseMiddleware):
             return None
 
         return await self._deny_message(event, bot, all_channels)
+
+    # -- clone bots: обязательная подписка на канал владельца -------------------
+
+    @staticmethod
+    def _extract_telegram_id(event: TelegramObject) -> int | None:
+        if isinstance(event, (Message, CallbackQuery)):
+            return event.from_user.id if event.from_user else None
+        if isinstance(event, Update):
+            if event.message and event.message.from_user:
+                return event.message.from_user.id
+            if event.callback_query and event.callback_query.from_user:
+                return event.callback_query.from_user.id
+        return None
+
+    @staticmethod
+    async def _clone_member_check(bot: Bot, chat_id: int, telegram_id: int) -> bool | None:
+        """Подписан ли юзер на канал клона. ``None`` = не смогли проверить (бота выгнали
+        из канала / канал удалён) — тогда fail-open, чтобы кривая настройка владельца
+        не заблокировала клон целиком."""
+        try:
+            member = await bot.get_chat_member(chat_id, telegram_id)
+        except TelegramAPIError as e:
+            logger.warning('Clone channel-sub check failed (fail-open)', chat_id=chat_id, error=str(e))
+            return None
+        status = getattr(member, 'status', None)
+        if status in ('creator', 'administrator', 'member'):
+            return True
+        if status == 'restricted':
+            return bool(getattr(member, 'is_member', False))
+        return False
+
+    @staticmethod
+    def _clone_deny_markup(clone) -> types.InlineKeyboardMarkup:
+        return types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text='📢 Подписаться', url=clone.channel_sub_link)],
+                [types.InlineKeyboardButton(text='✅ Я подписался', callback_data='clonesub_check')],
+            ]
+        )
+
+    @staticmethod
+    def _clone_deny_text(clone) -> str:
+        if getattr(clone, 'channel_sub_text', None):
+            return clone.channel_sub_text
+        from app.handlers.custom_reseller import CLONE_SUB_DEFAULT_TEXT
+
+        return CLONE_SUB_DEFAULT_TEXT
+
+    async def _handle_clone_channel_sub(
+        self,
+        handler: Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: dict[str, Any],
+        clone,
+    ) -> Any:
+        """Гейт клон-бота за каналом ЕГО владельца. ``clone`` — CloneSnapshot из
+        реестра клонера (без похода в БД); проверка — через самого клон-бота
+        (data['bot']), который обязан быть админом канала."""
+        if not getattr(clone, 'channel_sub_enabled', False) or not getattr(clone, 'channel_sub_chat_id', None):
+            return await handler(event, data)
+
+        telegram_id = self._extract_telegram_id(event)
+        if telegram_id is None:
+            return await handler(event, data)
+
+        if isinstance(event, CallbackQuery) and event.data in (
+            'webhook:close',
+            'ban_notify:delete',
+            'noop',
+            'current_page',
+        ):
+            return await handler(event, data)
+
+        if settings.is_admin(telegram_id):
+            return await handler(event, data)
+
+        state: FSMContext = data.get('state')
+        current_state = await state.get_state() if state else None
+        if is_registration_process(event, current_state):
+            return await handler(event, data)
+
+        bot: Bot = data['bot']
+        cache_key = f'clone_sub:{clone.clone_id}:{telegram_id}'
+
+        # Кнопка «Я подписался» — свежая проверка мимо кэша.
+        if isinstance(event, CallbackQuery) and event.data == 'clonesub_check':
+            rate_key = f'clone_sub_rate:{clone.clone_id}:{telegram_id}'
+            if await cache.exists(rate_key):
+                try:
+                    await event.answer()
+                except TelegramAPIError:
+                    pass
+                return None
+            await cache.set(rate_key, 1, expire=5)
+
+            subscribed = await self._clone_member_check(bot, clone.channel_sub_chat_id, telegram_id)
+            if subscribed or subscribed is None:
+                await cache.set(cache_key, 1, expire=600)
+                kb = types.InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [types.InlineKeyboardButton(text='🏠 Главное меню', callback_data='back_to_menu')]
+                    ]
+                )
+                try:
+                    await event.message.edit_text('✅ Подписка подтверждена — спасибо!', reply_markup=kb)
+                except TelegramBadRequest as e:
+                    if 'message is not modified' not in str(e).lower():
+                        raise
+                try:
+                    await event.answer()
+                except TelegramAPIError:
+                    pass
+                return None
+            try:
+                await event.answer('Вы ещё не подписались на канал. Подпишитесь и попробуйте снова.', show_alert=True)
+            except TelegramAPIError:
+                pass
+            return None
+
+        if await cache.exists(cache_key):
+            return await handler(event, data)
+
+        subscribed = await self._clone_member_check(bot, clone.channel_sub_chat_id, telegram_id)
+        if subscribed is None:
+            return await handler(event, data)  # не смогли проверить — не блокируем
+        if subscribed:
+            await cache.set(cache_key, 1, expire=600)
+            return await handler(event, data)
+
+        # Не подписан: сохраняем /start payload (реф-коды, рекламные ссылки) и показываем заглушку.
+        await self._capture_start_payload(state, event, bot=None)
+
+        text = self._clone_deny_text(clone)
+        kb = self._clone_deny_markup(clone)
+        try:
+            if isinstance(event, Message):
+                return await event.answer(text, reply_markup=kb)
+            if isinstance(event, CallbackQuery):
+                try:
+                    return await event.message.edit_text(text, reply_markup=kb)
+                except TelegramBadRequest as e:
+                    if 'message is not modified' in str(e).lower():
+                        return await event.answer()
+                    raise
+            if isinstance(event, Update) and event.message:
+                return await bot.send_message(event.message.chat.id, text, reply_markup=kb)
+        except Exception as e:
+            logger.error('Error sending clone subscription prompt', clone_id=clone.clone_id, error=e)
+        return None
 
     # -- _deny_message (multi-channel) -----------------------------------------
 

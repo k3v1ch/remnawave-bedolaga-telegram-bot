@@ -256,12 +256,15 @@ async def _process_single_subscription(
         # TOCTOU: lock user row before pricing to prevent concurrent promo/balance races
         user = await lock_user_for_pricing(db, user.id)
 
-        pricing = await pricing_engine.calculate_renewal_price(
-            db,
-            subscription,
-            autopay_period,
-            user=user,
-        )
+        from app.services.clone_pricing import markup_context_for_user
+
+        async with markup_context_for_user(db, user):
+            pricing = await pricing_engine.calculate_renewal_price(
+                db,
+                subscription,
+                autopay_period,
+                user=user,
+            )
         renewal_cost = pricing.final_total
     except Exception as e:
         logger.error(

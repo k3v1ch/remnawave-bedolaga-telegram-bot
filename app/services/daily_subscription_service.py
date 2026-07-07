@@ -134,6 +134,12 @@ class DailySubscriptionService:
 
         user = await lock_user_for_pricing(db, user.id)
 
+        # Клон-наценка (по user.clone_bot_id — фоновый крон, contextvar клона не стоит),
+        # затем скидка — тот же порядок, что в PricingEngine.
+        from app.services.clone_pricing import apply_clone_markup, get_user_markup_pct
+
+        raw_daily_price = apply_clone_markup(raw_daily_price, await get_user_markup_pct(db, user))
+
         # Apply group discount to daily price (consistent with PricingEngine._calculate_switch_to_daily)
         from app.services.pricing_engine import PricingEngine
 

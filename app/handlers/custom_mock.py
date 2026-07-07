@@ -24,7 +24,7 @@ from app.handlers.custom_tiktok import build_tiktok_cta
 from app.localization.texts import get_texts
 from app.utils.clone_context import is_clone_context
 from app.utils.photo_message import edit_or_answer_photo
-from app.utils.premium_emoji import build_caption_entities
+from app.utils.premium_emoji import build_caption_entities, combine_entities
 
 
 logger = structlog.get_logger(__name__)
@@ -48,7 +48,7 @@ CUSTOM_REF_STORIES_SCREEN_DEFAULT = (
     '\n'
     '⭐️ Акцией могут воспользоваться только пользователи с Telegram Premium, не более одного раза.\n'
     '\n'
-    '🔗 Ссылка для подписи — {bot_ref_link}'
+    '🔗 Подпись для публикации (реф-ссылка уже внутри): {bot_ref_link}'
 )
 
 CUSTOM_REF_POST_SCREEN_DEFAULT = (
@@ -61,7 +61,7 @@ CUSTOM_REF_POST_SCREEN_DEFAULT = (
     '\n'
     '⭐️ Акцией могут воспользоваться только пользователи с активной аудиторией от 100 подписчиков, не более одного раза.\n'
     '\n'
-    '🔗 Ссылка для подписи — {bot_ref_link}'
+    '🔗 Подпись для публикации (реф-ссылка уже внутри): {bot_ref_link}'
 )
 
 # Инертные действия — демо-алерты (ничего не шлют в бэкенд)
@@ -118,14 +118,31 @@ async def _render_bonus_screen(
         return
     texts = get_texts(db_user.language)
     raw = texts.t(key, default_text)
-    text = raw.replace('{bot_ref_link}', CUSTOM_REF_LINK_HINT)
+
+    # Внизу экрана — готовая подпись «Пользуюсь ВЕРНО VPN» со встроенной реф-ссылкой
+    # юзера (text_link), а не голая ссылка: её копируют прямо в сторис/пост.
+    if db_user.referral_code:
+        from app.config import settings as _settings
+
+        bot_username = (await callback.bot.get_me()).username
+        ref_link = _settings.get_bot_referral_link(db_user.referral_code, bot_username)
+        link_caption = f'«<a href="{ref_link}">Пользуюсь ВЕРНО VPN</a>»'
+    else:
+        link_caption = CUSTOM_REF_LINK_HINT
+    text = raw.replace('{bot_ref_link}', link_caption)
+
+    # HTML (text_link) + премиум-эмодзи вместе: Telegram игнорирует parse_mode при
+    # entities, поэтому HTML парсим в entities сами (combine_entities). Если премиум
+    # выключен/совпадений нет — шлём как обычный HTML.
+    combined = combine_entities(text, 'HTML')
+    caption, entities = combined if combined else (text, None)
     try:
         await edit_or_answer_photo(
             callback=callback,
-            caption=text,
+            caption=caption,
             keyboard=_bonus_screen_keyboard(texts, image_kind),
             parse_mode='HTML',
-            caption_entities=build_caption_entities(text),
+            caption_entities=entities,
         )
         await callback.answer()
     except Exception as error:

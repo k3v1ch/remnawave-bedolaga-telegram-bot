@@ -86,6 +86,12 @@ def get_admin_users_submenu_keyboard(language: str = 'ru') -> InlineKeyboardMark
                 InlineKeyboardButton(text=texts.ADMIN_REFERRALS, callback_data='admin_referrals'),
             ],
             [InlineKeyboardButton(text=texts.ADMIN_SUBSCRIPTIONS, callback_data='admin_subscriptions')],
+            [
+                InlineKeyboardButton(
+                    text=_t(texts, 'ADMIN_CLONE_BOTS', '🤖 Клон-боты'),
+                    callback_data='acl:list:0',
+                )
+            ],
             [InlineKeyboardButton(text=texts.BACK, callback_data='admin_panel')],
         ]
     )

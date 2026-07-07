@@ -472,12 +472,15 @@ class CryptoBotPaymentMixin:
 
         if pricing_model is None:
             try:
-                pricing_model = await pricing_engine.calculate_renewal_price(
-                    db,
-                    subscription,
-                    descriptor.period_days,
-                    user=user,
-                )
+                from app.services.clone_pricing import markup_context_for_user
+
+                async with markup_context_for_user(db, user):
+                    pricing_model = await pricing_engine.calculate_renewal_price(
+                        db,
+                        subscription,
+                        descriptor.period_days,
+                        user=user,
+                    )
             except Exception as error:
                 logger.error(
                     'Не удалось пересчитать стоимость продления для CryptoBot',

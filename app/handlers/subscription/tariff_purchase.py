@@ -28,6 +28,7 @@ from app.services.admin_notification_service import AdminNotificationService
 from app.services.subscription_service import SubscriptionService
 from app.services.user_cart_service import user_cart_service
 from app.utils.decorators import error_handler
+from app.services.clone_pricing import apply_clone_markup
 from app.utils.formatting import format_period, format_price_kopeks, format_traffic
 from app.utils.promo_offer import get_user_active_promo_discount_percent
 
@@ -84,9 +85,11 @@ async def _resolve_subscription(callback, db_user, db, state=None):
 
 
 def _apply_promo_discount(price: int, group_pct: int, offer_pct: int = 0) -> int:
-    """Применяет стекинг скидок к цене (sequential floor division, как PricingEngine)."""
+    """Применяет клон-наценку (no-op вне клона) и стекинг скидок к цене
+    (sequential floor division, как PricingEngine — движок наценивает так же)."""
     from app.services.pricing_engine import PricingEngine
 
+    price = apply_clone_markup(price)
     final, _, _ = PricingEngine.apply_stacked_discounts(price, group_pct, offer_pct)
     return final
 
@@ -153,12 +156,14 @@ def get_tariffs_keyboard(
         label = tariff.name
         try:
             if getattr(tariff, 'is_daily', False):
-                daily_price = getattr(tariff, 'daily_price_kopeks', 0) or 0
+                daily_price = apply_clone_markup(getattr(tariff, 'daily_price_kopeks', 0) or 0)
                 min_price_text = f'{format_price_kopeks(daily_price, compact=True)}/день' if daily_price > 0 else ''
             else:
                 prices = tariff.period_prices or {}
                 min_price_text = (
-                    format_price_kopeks(prices[min(prices.keys(), key=int)], compact=True) if prices else ''
+                    format_price_kopeks(apply_clone_markup(prices[min(prices.keys(), key=int)]), compact=True)
+                    if prices
+                    else ''
                 )
             if min_price_text:
                 label = label_template.format(
@@ -197,8 +202,8 @@ def get_tariff_periods_keyboard(
         if db_user:
             group_pct, offer_pct, discount_percent = _get_user_period_discount(db_user, period)
 
+        price = _apply_promo_discount(price, group_pct, offer_pct)  # наценка клона + скидки (0% — ок)
         if discount_percent > 0:
-            price = _apply_promo_discount(price, group_pct, offer_pct)
             price_text = f'{format_price_kopeks(price)} 🔥−{discount_percent}%'
         else:
             price_text = format_price_kopeks(price)
@@ -233,8 +238,8 @@ def get_tariff_periods_keyboard_with_traffic(
         if db_user:
             group_pct, offer_pct, discount_percent = _get_user_period_discount(db_user, period)
 
+        price = _apply_promo_discount(price, group_pct, offer_pct)  # наценка клона + скидки (0% — ок)
         if discount_percent > 0:
-            price = _apply_promo_discount(price, group_pct, offer_pct)
             price_text = f'{format_price_kopeks(price)} 🔥−{discount_percent}%'
         else:
             price_text = format_price_kopeks(price)
@@ -516,8 +521,9 @@ async def format_custom_tariff_preview(
         # Fallback: raw prices without discounts
         period_price, traffic_price, total_price = _calculate_custom_tariff_price(tariff, days, traffic_gb)
         has_discount = discount_percent > 0
-        if has_discount:
-            total_price = _apply_promo_discount(total_price, group_pct, offer_pct)
+        period_price = apply_clone_markup(period_price)
+        traffic_price = apply_clone_markup(traffic_price)
+        total_price = _apply_promo_discount(total_price, group_pct, offer_pct)
 
     traffic_display = f'{traffic_gb} ГБ' if traffic_gb > 0 else format_traffic(tariff.traffic_limit_gb)
 
@@ -649,9 +655,7 @@ async def select_tariff(
         # Для суточного тарифа показываем подтверждение без выбора периода
         raw_daily_price = getattr(tariff, 'daily_price_kopeks', 0)
         group_pct, offer_pct, daily_discount = _get_user_period_discount(db_user, 1)
-        daily_price = (
-            _apply_promo_discount(raw_daily_price, group_pct, offer_pct) if daily_discount > 0 else raw_daily_price
-        )
+        daily_price = _apply_promo_discount(raw_daily_price, group_pct, offer_pct)
         discount_text = f'\n💎 Скидка: {daily_discount}%' if daily_discount > 0 else ''
         user_balance = db_user.balance_kopeks or 0
         traffic = format_traffic(tariff.traffic_limit_gb)
@@ -1275,6 +1279,8 @@ async def select_tariff_period(
     prices = tariff.period_prices or {}
     base_price = prices.get(str(period), 0)
     final_price = _apply_promo_discount(base_price, group_pct, offer_pct)
+    # Для строки «Скидка: −X₽» база должна быть той же (с клон-наценкой), что и final_price.
+    base_price = apply_clone_markup(base_price)
 
     # Проверяем баланс
     user_balance = db_user.balance_kopeks or 0
@@ -2091,7 +2097,7 @@ def _calc_extra_devices_cost(tariff: Tariff, subscription_device_limit: int, per
     if device_price <= 0:
         return 0
     months = max(1, round(period_days / 30))
-    return additional * device_price * months
+    return apply_clone_markup(additional * device_price * months)
 
 
 def get_tariff_extend_keyboard(
@@ -2111,9 +2117,9 @@ def get_tariff_extend_keyboard(
     prices = tariff.period_prices or {}
     for period_str in sorted(prices.keys(), key=int):
         period = int(period_str)
-        base_price = prices[period_str]
+        base_price = apply_clone_markup(prices[period_str])
 
-        # Стоимость дополнительных устройств
+        # Стоимость дополнительных устройств (клон-наценка уже внутри _calc_extra_devices_cost)
         devices_cost = 0
         if subscription_device_limit is not None:
             devices_cost = _calc_extra_devices_cost(tariff, subscription_device_limit, period)
@@ -2655,11 +2661,14 @@ def format_tariff_switch_list_text(
         if is_daily:
             # Для суточных тарифов показываем цену за день с учётом скидки промогруппы
             daily_price = getattr(tariff, 'daily_price_kopeks', 0)
+            daily_discount = 0
             if db_user:
                 group_pct, offer_pct, daily_discount = _get_user_period_discount(db_user, 1)
+                daily_price = _apply_promo_discount(daily_price, group_pct, offer_pct)
                 if daily_discount > 0:
-                    daily_price = _apply_promo_discount(daily_price, group_pct, offer_pct)
                     discount_icon = '🔥'
+            else:
+                daily_price = apply_clone_markup(daily_price)
             price_text = f'🔄 {format_price_kopeks(daily_price, compact=True)}/день{discount_icon}'
         else:
             prices = tariff.period_prices or {}
@@ -2669,8 +2678,8 @@ def format_tariff_switch_list_text(
                 group_pct, offer_pct, discount_percent = 0, 0, 0
                 if db_user:
                     group_pct, offer_pct, discount_percent = _get_user_period_discount(db_user, int(min_period))
+                min_price = _apply_promo_discount(min_price, group_pct, offer_pct)
                 if discount_percent > 0:
-                    min_price = _apply_promo_discount(min_price, group_pct, offer_pct)
                     discount_icon = '🔥'
                 price_text = f'от {format_price_kopeks(min_price, compact=True)}{discount_icon}'
 
@@ -2723,8 +2732,8 @@ def get_tariff_switch_periods_keyboard(
         if db_user:
             group_pct, offer_pct, discount_percent = _get_user_period_discount(db_user, period)
 
+        price = _apply_promo_discount(price, group_pct, offer_pct)  # наценка клона + скидки (0% — ок)
         if discount_percent > 0:
-            price = _apply_promo_discount(price, group_pct, offer_pct)
             price_text = f'{format_price_kopeks(price)} 🔥−{discount_percent}%'
         else:
             price_text = format_price_kopeks(price)
@@ -2760,12 +2769,22 @@ def get_tariff_switch_insufficient_balance_keyboard(
     tariff_id: int,
     period: int,
     language: str,
+    missing_kopeks: int | None = None,  # префилл дефицита: после зачисления авто-смена из корзины
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру при недостаточном балансе для переключения."""
     texts = get_texts(language)
+    if missing_kopeks and missing_kopeks > 0:
+        topup_row = [
+            InlineKeyboardButton(
+                text=f'💳 Пополнить {format_price_kopeks(missing_kopeks)} и сменить',
+                callback_data=f'kbal_topup:{missing_kopeks}',
+            )
+        ]
+    else:
+        topup_row = [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')]
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')],
+            topup_row,
             [InlineKeyboardButton(text=texts.BACK, callback_data=f'tariff_sw_select:{tariff_id}')],
         ]
     )
@@ -2909,9 +2928,7 @@ async def select_tariff_switch(
         # Для суточного тарифа показываем подтверждение без выбора периода
         raw_daily_price = getattr(tariff, 'daily_price_kopeks', 0)
         group_pct, offer_pct, daily_discount = _get_user_period_discount(db_user, 1)
-        daily_price = (
-            _apply_promo_discount(raw_daily_price, group_pct, offer_pct) if daily_discount > 0 else raw_daily_price
-        )
+        daily_price = _apply_promo_discount(raw_daily_price, group_pct, offer_pct)
         discount_text = f'\n💎 Скидка: {daily_discount}%' if daily_discount > 0 else ''
         user_balance = db_user.balance_kopeks or 0
 
@@ -2951,6 +2968,27 @@ async def select_tariff_switch(
             )
         else:
             missing = daily_price - user_balance
+            # Сохраняем корзину для автосмены тарифа после пополнения баланса
+            await user_cart_service.save_user_cart(
+                db_user.id,
+                {
+                    'cart_mode': 'tariff_switch',
+                    'switch_kind': 'daily',
+                    'tariff_id': tariff_id,
+                    'subscription_id': current_subscription.id if current_subscription else None,
+                    'user_id': db_user.id,
+                    'missing_amount': missing,
+                    'saved_cart': True,
+                    'return_to_cart': True,
+                },
+            )
+            if missing > 0:
+                topup_button = InlineKeyboardButton(
+                    text=f'💳 Пополнить {format_price_kopeks(missing)} и сменить',
+                    callback_data=f'kbal_topup:{missing}',
+                )
+            else:
+                topup_button = InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')
             await callback.message.edit_text(
                 f'❌ <b>Недостаточно средств</b>\n\n'
                 f'📦 Тариф: <b>{html.escape(tariff.name)}</b>\n'
@@ -2959,10 +2997,11 @@ async def select_tariff_switch(
                 f'{discount_text}\n\n'
                 f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
                 f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>'
-                f'{days_warning}',
+                f'{days_warning}\n\n'
+                f'🛒 <i>После пополнения смена тарифа выполнится автоматически.</i>',
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')],
+                        [topup_button],
                         [InlineKeyboardButton(text=get_texts(db_user.language).BACK, callback_data='tariff_switch')],
                     ]
                 ),
@@ -3070,14 +3109,30 @@ async def select_tariff_switch_period(
         )
     else:
         missing = final_price - user_balance
+        # Сохраняем корзину для автосмены тарифа после пополнения баланса
+        await user_cart_service.save_user_cart(
+            db_user.id,
+            {
+                'cart_mode': 'tariff_switch',
+                'switch_kind': 'period',
+                'tariff_id': tariff_id,
+                'period_days': period,
+                'subscription_id': subscription.id if subscription else None,
+                'user_id': db_user.id,
+                'missing_amount': missing,
+                'saved_cart': True,
+                'return_to_cart': True,
+            },
+        )
         await callback.message.edit_text(
             f'❌ <b>Недостаточно средств</b>\n\n'
             f'📦 Тариф: <b>{html.escape(tariff.name)}</b>\n'
             f'📅 Период: {format_period(period)}\n'
             f'💰 К оплате: {format_price_kopeks(final_price)}\n\n'
             f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
-            f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>',
-            reply_markup=get_tariff_switch_insufficient_balance_keyboard(tariff_id, period, db_user.language),
+            f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>\n\n'
+            f'🛒 <i>После пополнения смена тарифа выполнится автоматически.</i>',
+            reply_markup=get_tariff_switch_insufficient_balance_keyboard(tariff_id, period, db_user.language, missing),
             parse_mode='HTML',
         )
 
@@ -3773,12 +3828,22 @@ def get_instant_switch_confirm_keyboard(
 def get_instant_switch_insufficient_balance_keyboard(
     tariff_id: int,
     language: str,
+    missing_kopeks: int | None = None,  # префилл дефицита: после зачисления авто-смена из корзины
 ) -> InlineKeyboardMarkup:
     """Создает клавиатуру при недостаточном балансе для мгновенного переключения."""
     texts = get_texts(language)
+    if missing_kopeks and missing_kopeks > 0:
+        topup_row = [
+            InlineKeyboardButton(
+                text=f'💳 Пополнить {format_price_kopeks(missing_kopeks)} и сменить',
+                callback_data=f'kbal_topup:{missing_kopeks}',
+            )
+        ]
+    else:
+        topup_row = [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')]
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text='💳 Пополнить баланс', callback_data='balance_topup')],
+            topup_row,
             [InlineKeyboardButton(text=texts.BACK, callback_data='instant_switch')],
         ]
     )
@@ -3957,11 +4022,7 @@ async def preview_instant_switch(
         raw_daily_price = getattr(new_tariff, 'daily_price_kopeks', 0)
         # Применяем групповую скидку + promo-offer для отображения
         daily_group_pct, daily_offer_pct, daily_discount = _get_user_period_discount(db_user, 1)
-        daily_price = (
-            _apply_promo_discount(raw_daily_price, daily_group_pct, daily_offer_pct)
-            if daily_discount > 0
-            else raw_daily_price
-        )
+        daily_price = _apply_promo_discount(raw_daily_price, daily_group_pct, daily_offer_pct)
         discount_text = f'\n💎 Скидка: {daily_discount}%' if daily_discount > 0 else ''
         user_balance = db_user.balance_kopeks or 0
 
@@ -3985,6 +4046,20 @@ async def preview_instant_switch(
             )
         else:
             missing = daily_price - user_balance
+            # Сохраняем корзину для автосмены тарифа после пополнения баланса
+            await user_cart_service.save_user_cart(
+                db_user.id,
+                {
+                    'cart_mode': 'tariff_switch',
+                    'switch_kind': 'instant',
+                    'tariff_id': tariff_id,
+                    'subscription_id': subscription.id if subscription else None,
+                    'user_id': db_user.id,
+                    'missing_amount': missing,
+                    'saved_cart': True,
+                    'return_to_cart': True,
+                },
+            )
             await callback.message.edit_text(
                 f'❌ <b>Недостаточно средств</b>\n\n'
                 f'📦 Тариф: <b>{html.escape(new_tariff.name)}</b>\n'
@@ -3993,8 +4068,9 @@ async def preview_instant_switch(
                 f'{discount_text}\n\n'
                 f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
                 f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>'
-                f'{daily_warning}',
-                reply_markup=get_instant_switch_insufficient_balance_keyboard(tariff_id, db_user.language),
+                f'{daily_warning}\n\n'
+                f'🛒 <i>После пополнения смена тарифа выполнится автоматически.</i>',
+                reply_markup=get_instant_switch_insufficient_balance_keyboard(tariff_id, db_user.language, missing),
                 parse_mode='HTML',
             )
 
@@ -4028,13 +4104,28 @@ async def preview_instant_switch(
             )
         else:
             missing = upgrade_cost - user_balance
+            # Сохраняем корзину для автосмены тарифа после пополнения баланса
+            await user_cart_service.save_user_cart(
+                db_user.id,
+                {
+                    'cart_mode': 'tariff_switch',
+                    'switch_kind': 'instant',
+                    'tariff_id': tariff_id,
+                    'subscription_id': subscription.id if subscription else None,
+                    'user_id': db_user.id,
+                    'missing_amount': missing,
+                    'saved_cart': True,
+                    'return_to_cart': True,
+                },
+            )
             await callback.message.edit_text(
                 f'❌ <b>Недостаточно средств</b>\n\n'
                 f'📦 Новый тариф: <b>{html.escape(new_tariff.name)}</b>\n'
                 f'💰 Требуется доплата: {format_price_kopeks(upgrade_cost)}\n\n'
                 f'💳 Ваш баланс: {format_price_kopeks(user_balance)}\n'
-                f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>',
-                reply_markup=get_instant_switch_insufficient_balance_keyboard(tariff_id, db_user.language),
+                f'⚠️ Не хватает: <b>{format_price_kopeks(missing)}</b>\n\n'
+                f'🛒 <i>После пополнения смена тарифа выполнится автоматически.</i>',
+                reply_markup=get_instant_switch_insufficient_balance_keyboard(tariff_id, db_user.language, missing),
                 parse_mode='HTML',
             )
     else:

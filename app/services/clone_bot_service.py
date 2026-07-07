@@ -70,6 +70,45 @@ async def delete_squad(external_squad_uuid: str) -> bool:
         return await api.delete_external_squad(external_squad_uuid)
 
 
+async def cleanup_squad_on_delete(db: AsyncSession, clone: CloneBot) -> None:
+    """Drop the clone's external squad from the panel, but only when it has no clients left.
+
+    A clone's squad holds its subscribers' panel users, so deleting it for a live reseller
+    would strip those clients of their squad assignment. We only clean up the leftover squad
+    of an empty (e.g. test) clone. Best-effort: panel errors are logged, never raised.
+    """
+    squad_uuid = clone.external_squad_uuid
+    if not squad_uuid:
+        return
+
+    from app.database.crud.clone_bot import count_brought_users
+
+    clients = await count_brought_users(db, clone.id)
+    if clients > 0:
+        logger.info(
+            'Keeping external squad on clone delete: clone still has clients',
+            clone_id=clone.id,
+            clients=clients,
+            squad_uuid=squad_uuid,
+        )
+        return
+
+    try:
+        await delete_squad(squad_uuid)
+        logger.info(
+            'Deleted leftover external squad on clone delete',
+            clone_id=clone.id,
+            squad_uuid=squad_uuid,
+        )
+    except Exception:
+        logger.warning(
+            'Failed to delete external squad on clone delete',
+            clone_id=clone.id,
+            squad_uuid=squad_uuid,
+            exc_info=True,
+        )
+
+
 async def resolve_external_squad_uuid(
     db: AsyncSession,
     *,

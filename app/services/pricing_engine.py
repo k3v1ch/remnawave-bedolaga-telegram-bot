@@ -8,6 +8,7 @@ import structlog
 
 from app.config import CLASSIC_PERIOD_PRICES, PERIOD_PRICES, settings
 from app.database.crud.server_squad import get_server_squads_by_uuids
+from app.services.clone_pricing import apply_clone_markup
 from app.utils.pricing_utils import calculate_months_from_days
 from app.utils.promo_offer import get_user_active_promo_discount_percent
 
@@ -279,7 +280,9 @@ class PricingEngine:
 
         numerator = (new_price * cur_period - cur_price * new_period) * remaining_days
         denominator = new_period * cur_period
-        raw_cost = max(0, numerator // denominator)
+        # Клон-наценка: обе дневные ставки масштабируются одинаково, поэтому наценить
+        # разницу эквивалентно наценке обоих тарифов.
+        raw_cost = apply_clone_markup(max(0, numerator // denominator))
 
         if numerator <= 0:
             return TariffSwitchResult(
@@ -327,7 +330,7 @@ class PricingEngine:
         user: User | None = None,
     ) -> TariffSwitchResult:
         """Periodic → Daily: оплата первого дня с group + offer discount."""
-        daily_price = getattr(new_tariff, 'daily_price_kopeks', 0) or 0
+        daily_price = apply_clone_markup(getattr(new_tariff, 'daily_price_kopeks', 0) or 0)
         if daily_price <= 0:
             return TariffSwitchResult(
                 upgrade_cost=0,
@@ -373,7 +376,7 @@ class PricingEngine:
         min_period_price = 0
         if new_tariff.period_prices:
             min_period_days = min(int(k) for k in new_tariff.period_prices.keys())
-            min_period_price = new_tariff.period_prices.get(str(min_period_days), 0) or 0
+            min_period_price = apply_clone_markup(new_tariff.period_prices.get(str(min_period_days), 0) or 0)
 
         if min_period_price <= 0:
             return TariffSwitchResult(
@@ -598,6 +601,12 @@ class PricingEngine:
             raw_traffic = tariff.get_price_for_custom_traffic(custom_traffic_gb)
             if raw_traffic and raw_traffic > 0:
                 traffic_price = int(raw_traffic)
+
+        # --- White-label наценка клона (contextvar; вне клона = no-op) ---
+        # До скидок, ко всем базовым компонентам — чтобы скидки считались от цены клона.
+        base_price = apply_clone_markup(base_price)
+        devices_price = apply_clone_markup(devices_price)
+        traffic_price = apply_clone_markup(traffic_price)
 
         # --- Per-category group discounts ---
         period_pct = 0

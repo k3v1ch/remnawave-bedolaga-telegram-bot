@@ -724,7 +724,7 @@ async def _continue_registration_after_language(
     logger.info('📋 LANGUAGE: Правила отправлены после выбора языка')
 
 
-async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession, db_user=None):
+async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession, db_user=None, clone_bot=None):
     logger.info('🚀 START: Обработка /start от', from_user_id=message.from_user.id)
 
     data = await state.get_data() or {}
@@ -850,6 +850,24 @@ async def cmd_start(message: types.Message, state: FSMContext, db: AsyncSession,
             await start_clone_onboarding(message, user, state, db, clone_bot=None)
             return
         # Unregistered → fall through to normal /start; they can create a bot after registering.
+        start_parameter = None
+
+    # Рекламная ссылка клон-бота: /start ad_<slug> — только в клоне (clone_bot задан
+    # TenantContextMiddleware). Чистая статистика: клик++ сразу, регистрация — через
+    # pending в Redis (подхватит AuthMiddleware при атрибуции юзера к клону).
+    # Никаких бонусов; параметр гасим, чтобы он не ушёл в кампании/реф-коды.
+    if start_parameter and clone_bot is not None and start_parameter.startswith('ad_'):
+        from app.database.crud.clone_bot_link import get_link_by_slug, increment_clicks, save_pending_link
+
+        try:
+            link = await get_link_by_slug(db, start_parameter[3:])
+        except Exception as exc:
+            logger.warning('Clone ad-link lookup failed', error=exc)
+            link = None
+        if link is not None and link.clone_bot_id == getattr(clone_bot, 'clone_id', None):
+            await increment_clicks(db, link.id)
+            if not db_user:
+                await save_pending_link(message.from_user.id, link.id)
         start_parameter = None
 
     # Keitaro/affiliate click ID rides on /start as `{campaign}_subid_{click_id}`

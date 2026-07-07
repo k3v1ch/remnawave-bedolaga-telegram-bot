@@ -31,6 +31,7 @@ from app.database.crud.clone_bot import (
     set_status,
 )
 from app.database.models import CloneBotStatus, User
+from app.services.admin_notification_service import AdminNotificationService
 from app.services.clone_bot_service import provision_squad
 from app.services.clone_runtime.coordinator import publish_clone_event
 from app.states import CloneBotStates
@@ -195,6 +196,34 @@ async def process_token(message: types.Message, db_user: User, state: FSMContext
         f'Бот <b>{name}</b> уже работает — можете им пользоваться и приглашать клиентов. '
         'Все, кто зарегистрируются через него, станут вашими.'
     )
+
+    # Сразу открываем карточку управления новым ботом (только в основном боте —
+    # панель «Мои боты» живёт здесь; в клоне онбординг всё равно не идёт).
+    from app.utils.clone_context import is_clone_context
+
+    if not is_clone_context():
+        try:
+            from app.database.crud.clone_bot import get_clone_bot
+            from app.handlers.custom_reseller import _render_detail
+
+            fresh = await get_clone_bot(db, clone.id)
+            if fresh is not None:
+                text, kb = await _render_detail(db, fresh, False, db_user)
+                await message.answer(text, reply_markup=kb)
+        except Exception:
+            logger.warning('Не удалось показать карточку нового клона', clone_id=clone.id, exc_info=True)
+
+    try:
+        await AdminNotificationService(message.bot).send_clone_bot_created_notification(
+            db_user,
+            bot_username=me.username,
+            bot_title=me.full_name,
+            profile_title=name,
+            clone_id=clone.id,
+            bot_id=me.id,
+        )
+    except Exception:
+        logger.exception('Не удалось отправить админ-уведомление о создании клон-бота', clone_id=clone.id)
 
 
 def register_handlers(dp: Dispatcher):

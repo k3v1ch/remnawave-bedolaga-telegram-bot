@@ -1930,6 +1930,19 @@ class CloneBot(Base):
     status = Column(String(20), default=CloneBotStatus.PENDING.value, nullable=False, index=True)
     last_error = Column(Text, nullable=True)
 
+    # Наценка владельца-ПАРТНЁРА на цены тарифов в ЕГО клоне, % (0–500). Клиенты клона
+    # видят и платят цену с наценкой; выгода владельца — косвенная (больше пополнения →
+    # больше партнёрская комиссия). В основном боте и других клонах не участвует.
+    pricing_markup_pct = Column(Integer, default=0, nullable=False, server_default='0')
+
+    # Обязательная подписка на канал владельца (клон-бот должен быть админом канала,
+    # иначе Telegram не даёт проверять участников через getChatMember).
+    channel_sub_enabled = Column(Boolean, default=False, nullable=False, server_default='false')
+    channel_sub_chat_id = Column(BigInteger, nullable=True)  # -100… numeric id
+    channel_sub_link = Column(String(500), nullable=True)  # https://t.me/… для кнопки «Подписаться»
+    channel_sub_title = Column(String(255), nullable=True)
+    channel_sub_text = Column(Text, nullable=True)  # None = дефолтный текст заглушки
+
     created_at = Column(AwareDateTime(), default=func.now())
     updated_at = Column(AwareDateTime(), default=func.now(), onupdate=func.now())
 
@@ -1938,6 +1951,66 @@ class CloneBot(Base):
     @property
     def is_active(self) -> bool:
         return self.status == CloneBotStatus.ACTIVE.value
+
+
+class CloneBotLink(Base):
+    """Рекламная ссылка клон-бота: ``t.me/<клон>?start=ad_<slug>``.
+
+    Чистая статистика для владельца (клики/регистрации) — БЕЗ бонусов за переход
+    (в отличие от AdvertisingCampaign основного бота). Атрибуция юзера к ссылке —
+    ``users.clone_link_id`` (для подсчёта пополнений/выручки по ссылке).
+    """
+
+    __tablename__ = 'clone_bot_links'
+
+    id = Column(Integer, primary_key=True, index=True)
+    clone_bot_id = Column(Integer, ForeignKey('clone_bots.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    name = Column(String(255), nullable=False)
+    slug = Column(String(32), unique=True, nullable=False, index=True)
+
+    clicks_count = Column(Integer, default=0, nullable=False, server_default='0')
+    registrations_count = Column(Integer, default=0, nullable=False, server_default='0')
+
+    created_at = Column(AwareDateTime(), default=func.now())
+
+    clone_bot = relationship('CloneBot')
+
+    @property
+    def start_parameter(self) -> str:
+        return f'ad_{self.slug}'
+
+
+class CloneBroadcast(Base):
+    """Рассылка владельца клон-бота ТОЛЬКО по юзерам его клона.
+
+    Отправляется от имени клон-бота (временный Bot из его токена в main-процессе).
+    ``media_file_id`` — file_id ОСНОВНОГО бота (пост составляется в панели «Мои боты»);
+    при отправке файл перекачивается и первому получателю уходит байтами, дальше —
+    по clone-scoped file_id. Лимит создания — ``CLONE_BROADCASTS_PER_DAY`` в сутки.
+    """
+
+    __tablename__ = 'clone_broadcasts'
+
+    id = Column(Integer, primary_key=True, index=True)
+    clone_bot_id = Column(Integer, ForeignKey('clone_bots.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    message_text = Column(Text, nullable=True)  # текст поста или подпись к фото
+    media_type = Column(String(20), nullable=True)  # 'photo' | None
+    media_file_id = Column(String(255), nullable=True)  # file_id основного бота
+    button_text = Column(String(64), nullable=True)  # опциональная URL-кнопка
+    button_url = Column(String(500), nullable=True)
+    show_tariffs_button = Column(Boolean, default=False, nullable=False, server_default='false')
+
+    status = Column(String(20), default='in_progress', nullable=False)  # in_progress|completed|failed
+    total_count = Column(Integer, default=0, nullable=False)
+    sent_count = Column(Integer, default=0, nullable=False)
+    failed_count = Column(Integer, default=0, nullable=False)
+
+    created_at = Column(AwareDateTime(), default=func.now(), index=True)
+    completed_at = Column(AwareDateTime(), nullable=True)
+
+    clone_bot = relationship('CloneBot')
 
 
 class User(Base):
@@ -2071,6 +2144,8 @@ class User(Base):
 
     # White-label: какой клон-бот привёл этого пользователя (атрибуция для CRM). NULL = основной бот.
     clone_bot_id = Column(Integer, ForeignKey('clone_bots.id', ondelete='SET NULL'), nullable=True, index=True)
+    # По какой рекламной ссылке клон-бота пришёл (статистика ссылок владельца).
+    clone_link_id = Column(Integer, ForeignKey('clone_bot_links.id', ondelete='SET NULL'), nullable=True, index=True)
 
     @property
     def is_partner(self) -> bool:

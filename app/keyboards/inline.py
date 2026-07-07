@@ -1356,6 +1356,25 @@ def get_subscription_manage_keyboard(
             ]
         )
 
+    # [Докупить устройства] — только для платных подписок, где докупка реально доступна:
+    # в режиме тарифов у тарифа должна быть задана цена за доп. устройство (>0), иначе
+    # handle_change_devices всё равно покажет «недоступно». Ведущий эмодзи ➕ premium-
+    # middleware превратит в кастом-иконку (как у прочих кнопок).
+    if tariff is not None:
+        _device_price = getattr(tariff, 'device_price_kopeks', None)
+        can_buy_devices = bool(_device_price and _device_price > 0)
+    else:
+        can_buy_devices = settings.is_devices_selection_enabled()
+    if subscription and not is_trial and can_buy_devices:
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    text=texts.t('CUSTOM_ACC_BUY_DEVICES_BUTTON', '➕ Докупить устройства'),
+                    callback_data='subscription_change_devices',
+                )
+            ]
+        )
+
     # [Устройства]
     keyboard.append(
         [

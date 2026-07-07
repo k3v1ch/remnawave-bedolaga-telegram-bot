@@ -25,6 +25,7 @@ from app.database.crud.clone_bot import (
     set_status,
 )
 from app.database.models import CloneBotStatus, User
+from app.services.clone_bot_service import cleanup_squad_on_delete
 from app.services.clone_runtime.coordinator import publish_clone_event
 from app.utils.decorators import error_handler
 
@@ -47,9 +48,11 @@ async def _render_list(db: AsyncSession, page: int) -> tuple[str, InlineKeyboard
     clones = clones[:_PAGE]
     stats = await get_stats_bulk(db, [c.id for c in clones])
 
+    back_row = [InlineKeyboardButton(text='◀️ Назад', callback_data='admin_submenu_users')]
+
     if not clones and page == 0:
         text = '🤖 <b>Клон-боты</b>\n\nПока нет ни одного подключённого бота.'
-        return text, InlineKeyboardMarkup(inline_keyboard=[])
+        return text, InlineKeyboardMarkup(inline_keyboard=[back_row])
 
     rows: list[list[InlineKeyboardButton]] = []
     for c in clones:
@@ -65,6 +68,7 @@ async def _render_list(db: AsyncSession, page: int) -> tuple[str, InlineKeyboard
         nav.append(InlineKeyboardButton(text='▶️', callback_data=f'acl:list:{page + 1}'))
     if nav:
         rows.append(nav)
+    rows.append(back_row)
 
     text = f'🤖 <b>Клон-боты</b> (стр. {page + 1})\n\nВыберите бота для управления:'
     return text, InlineKeyboardMarkup(inline_keyboard=rows)
@@ -175,7 +179,7 @@ async def confirm_delete(callback: types.CallbackQuery, db_user: User, db: Async
         ]
     )
     await callback.message.edit_text(
-        'Удалить клон-бота? Он перестанет работать. Сквад в панели и подписки клиентов сохранятся.',
+        'Удалить клон-бота? Он перестанет работать. Если у клона нет клиентов — его сквад в панели тоже удалится; если клиенты есть, сквад и их подписки сохранятся.',
         reply_markup=kb,
     )
     await callback.answer()
@@ -187,8 +191,12 @@ async def do_delete(callback: types.CallbackQuery, db_user: User, db: AsyncSessi
         await callback.answer('Нет доступа', show_alert=True)
         return
     clone_id = int(callback.data.split(':')[2])
-    # Stop it on the cloner first (deletes webhook + drops from registry), then delete the row.
+    # Stop it on the cloner first (deletes webhook + drops from registry), clean up its empty
+    # squad in the panel, then delete the row.
     await publish_clone_event('remove', clone_id)
+    clone = await get_clone_bot(db, clone_id)
+    if clone is not None:
+        await cleanup_squad_on_delete(db, clone)
     await delete_clone_bot(db, clone_id)
     await callback.answer('Удалён')
     text, kb = await _render_list(db, 0)

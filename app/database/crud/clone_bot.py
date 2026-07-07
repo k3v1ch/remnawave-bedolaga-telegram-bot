@@ -192,6 +192,80 @@ async def update_token(
     return clone
 
 
+async def set_pricing_markup(db: AsyncSession, clone_id: int, pct: int) -> CloneBot | None:
+    """Наценка клона на тарифы, % (валидация 0–500 — на вызывающей стороне).
+
+    После вызова нужен ``publish_clone_event('reload', …)`` — цены в клонере
+    считаются по in-memory snapshot."""
+    clone = await db.get(CloneBot, clone_id)
+    if clone is None:
+        return None
+    clone.pricing_markup_pct = pct
+    await db.commit()
+    await db.refresh(clone)
+    return clone
+
+
+async def sum_purchases_kopeks(db: AsyncSession, clone_id: int, since=None) -> int:
+    """Сумма покупок/продлений подписок юзерами клона за период (для оценки
+    «сколько принесла наценка»)."""
+    where = [
+        Transaction.clone_bot_id == clone_id,
+        Transaction.is_completed.is_(True),
+        Transaction.amount_kopeks > 0,
+        Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT.value,
+    ]
+    if since is not None:
+        where.append(Transaction.created_at >= since)
+    result = await db.execute(select(func.coalesce(func.sum(Transaction.amount_kopeks), 0)).where(*where))
+    return int(result.scalar() or 0)
+
+
+async def set_channel_sub_channel(
+    db: AsyncSession,
+    clone_id: int,
+    *,
+    chat_id: int,
+    link: str,
+    title: str | None,
+) -> CloneBot | None:
+    """Привязать канал обязательной подписки (уже проверенный: клон-бот — админ канала).
+
+    После вызова нужен ``publish_clone_event('reload', …)`` — enforcement в клонере
+    читает эти поля из in-memory snapshot, а не из БД.
+    """
+    clone = await db.get(CloneBot, clone_id)
+    if clone is None:
+        return None
+    clone.channel_sub_chat_id = chat_id
+    clone.channel_sub_link = link
+    clone.channel_sub_title = title
+    await db.commit()
+    await db.refresh(clone)
+    return clone
+
+
+async def set_channel_sub_enabled(db: AsyncSession, clone_id: int, enabled: bool) -> CloneBot | None:
+    clone = await db.get(CloneBot, clone_id)
+    if clone is None:
+        return None
+    clone.channel_sub_enabled = enabled
+    await db.commit()
+    await db.refresh(clone)
+    return clone
+
+
+async def set_channel_sub_text(db: AsyncSession, clone_id: int, text: str | None) -> CloneBot | None:
+    """Кастомный текст заглушки «подпишитесь на канал». ``None`` — вернуть дефолтный."""
+    clone = await db.get(CloneBot, clone_id)
+    if clone is None:
+        return None
+    clone.channel_sub_text = text
+    await db.commit()
+    await db.refresh(clone)
+    return clone
+
+
 async def delete_clone_bot(db: AsyncSession, clone_id: int) -> bool:
     clone = await db.get(CloneBot, clone_id)
     if clone is None:
@@ -270,6 +344,83 @@ async def get_stats_bulk(db: AsyncSession, clone_ids: list[int]) -> dict[int, di
         stats[clone_id]['real_topup_kopeks'] = int(total or 0)
 
     return stats
+
+
+async def get_period_stats(db: AsyncSession, clone_id: int, since=None) -> dict[str, int]:
+    """Статистика клона за период (``since=None`` — за всё время) для экрана 📊.
+
+    - ``new_users`` — новые юзеры клона;
+    - ``purchases`` — покупки/продления подписок (число транзакций);
+    - ``real_topup_kopeks`` — реальные пополнения через платёжные шлюзы;
+    - ``owner_reward_kopeks`` — начислено владельцу-партнёру (клон-комиссия);
+    - ``owner_reward_days_awards`` — сколько раз владельцу-непартнёру капнули бонусные
+      дни (дней за раз — ``settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS``, множит хендлер).
+    """
+    from app.database.models import ReferralEarning
+
+    def _period(col, *conds):
+        where = list(conds)
+        if since is not None:
+            where.append(col >= since)
+        return where
+
+    new_users = await db.execute(
+        select(func.count(User.id)).where(*_period(User.created_at, User.clone_bot_id == clone_id))
+    )
+    purchases = await db.execute(
+        select(func.count(Transaction.id)).where(
+            *_period(
+                Transaction.created_at,
+                Transaction.clone_bot_id == clone_id,
+                Transaction.is_completed.is_(True),
+                Transaction.type == TransactionType.SUBSCRIPTION_PAYMENT.value,
+            )
+        )
+    )
+    topup = await db.execute(
+        select(func.coalesce(func.sum(Transaction.amount_kopeks), 0)).where(
+            *_period(
+                Transaction.created_at,
+                Transaction.clone_bot_id == clone_id,
+                Transaction.is_completed.is_(True),
+                Transaction.amount_kopeks > 0,
+                Transaction.type == TransactionType.DEPOSIT.value,
+                Transaction.payment_method.in_(REAL_PAYMENT_METHODS),
+            )
+        )
+    )
+    payer = ReferralEarning.referral_id == User.id
+    reward_money = await db.execute(
+        select(func.coalesce(func.sum(ReferralEarning.amount_kopeks), 0))
+        .select_from(ReferralEarning)
+        .join(User, payer)
+        .where(
+            *_period(
+                ReferralEarning.created_at,
+                User.clone_bot_id == clone_id,
+                ReferralEarning.reason == 'clone_owner_commission_topup',
+            )
+        )
+    )
+    reward_days = await db.execute(
+        select(func.count(ReferralEarning.id))
+        .select_from(ReferralEarning)
+        .join(User, payer)
+        .where(
+            *_period(
+                ReferralEarning.created_at,
+                User.clone_bot_id == clone_id,
+                ReferralEarning.reason == 'clone_owner_topup_days',
+            )
+        )
+    )
+    return {
+        'new_users': int(new_users.scalar() or 0),
+        'purchases': int(purchases.scalar() or 0),
+        'real_topup_kopeks': int(topup.scalar() or 0),
+        'owner_reward_kopeks': int(reward_money.scalar() or 0),
+        'owner_reward_days_awards': int(reward_days.scalar() or 0),
+    }
 
 
 # --- detail view (one clone) ---

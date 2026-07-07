@@ -33,6 +33,14 @@ class CloneSnapshot:
     external_squad_uuid: str | None
     profile_title: str | None
     webhook_secret: str
+    # Обязательная подписка на канал владельца (enforcement в ChannelCheckerMiddleware).
+    channel_sub_enabled: bool = False
+    channel_sub_chat_id: int | None = None
+    channel_sub_link: str | None = None
+    channel_sub_title: str | None = None
+    channel_sub_text: str | None = None
+    # Наценка владельца-партнёра на цены тарифов (0–500 %).
+    pricing_markup_pct: int = 0
 
     @classmethod
     def from_model(cls, clone: CloneBot) -> CloneSnapshot:
@@ -43,6 +51,12 @@ class CloneSnapshot:
             external_squad_uuid=clone.external_squad_uuid,
             profile_title=clone.profile_title,
             webhook_secret=clone.webhook_secret,
+            channel_sub_enabled=bool(clone.channel_sub_enabled),
+            channel_sub_chat_id=clone.channel_sub_chat_id,
+            channel_sub_link=clone.channel_sub_link,
+            channel_sub_title=clone.channel_sub_title,
+            channel_sub_text=clone.channel_sub_text,
+            pricing_markup_pct=int(clone.pricing_markup_pct or 0),
         )
 
 

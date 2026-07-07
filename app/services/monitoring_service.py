@@ -107,8 +107,8 @@ def resolve_autopay_period_candidate(candidate, tariff) -> int | None:
     return candidate
 
 
-# Кулдаун между повторными уведомлениями об автоплатеже с недостаточным балансом (6 часов)
-AUTOPAY_INSUFFICIENT_BALANCE_COOLDOWN_SECONDS: int = 21600
+# Кулдаун между повторными уведомлениями об автоплатеже с недостаточным балансом (24 часа)
+AUTOPAY_INSUFFICIENT_BALANCE_COOLDOWN_SECONDS: int = 86400
 
 # Размер батча для проверки подписок на каналы (keyset pagination)
 _CHANNEL_CHECK_BATCH_SIZE: int = 100
@@ -1406,12 +1406,15 @@ class MonitoringService:
 
                         user = await lock_user_for_pricing(db, user.id)
 
-                        pricing = await pricing_engine.calculate_renewal_price(
-                            db,
-                            subscription,
-                            autopay_period,
-                            user=user,
-                        )
+                        from app.services.clone_pricing import markup_context_for_user
+
+                        async with markup_context_for_user(db, user):
+                            pricing = await pricing_engine.calculate_renewal_price(
+                                db,
+                                subscription,
+                                autopay_period,
+                                user=user,
+                            )
                         renewal_cost = pricing.final_total
                     except Exception as e:
                         logger.error(
@@ -1956,9 +1959,11 @@ class MonitoringService:
 
             renewal_period = (tariff.get_shortest_period() if tariff else None) or 30
             try:
+                from app.services.clone_pricing import markup_context_for_user
                 from app.services.pricing_engine import pricing_engine
 
-                pricing = await pricing_engine.calculate_renewal_price(db, subscription, renewal_period, user=user)
+                async with markup_context_for_user(db, user):
+                    pricing = await pricing_engine.calculate_renewal_price(db, subscription, renewal_period, user=user)
                 renewal_price_kopeks = pricing.final_total
             except Exception as price_error:
                 logger.warning(

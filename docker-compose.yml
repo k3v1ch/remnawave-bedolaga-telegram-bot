@@ -92,6 +92,60 @@ services:
       retries: 3
       start_period: 30s
 
+  # ОДИН общий хост для ВСЕХ white-label клон-ботов (hot-swap, без контейнера-на-бота).
+  # Изолирован от `bot`, чтобы шторм клонов не ронял основной бот.
+  cloner:
+    build: .
+    image: remnawave-bedolaga-telegram-bot-bot:latest
+    container_name: remnawave_bot_cloner
+    restart: unless-stopped
+    command: ['python', 'cloner.py']
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      FORCE_COLOR: '1'
+      DOCKER_ENV: 'true'
+      DATABASE_MODE: 'auto'
+      POSTGRES_HOST: 'postgres'
+      POSTGRES_PORT: '5432'
+      POSTGRES_DB: '${POSTGRES_DB:-remnawave_bot}'
+      POSTGRES_USER: '${POSTGRES_USER:-remnawave_user}'
+      POSTGRES_PASSWORD: '${POSTGRES_PASSWORD:-secure_password_123}'
+      REDIS_URL: 'redis://redis:6379/0'
+      TZ: 'Europe/Moscow'
+      LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
+      CLONE_HOST_ENABLED: 'true'
+      DB_POOL_SIZE: '10'
+      DB_MAX_OVERFLOW: '10'
+    volumes:
+      - ./logs:/app/logs:rw
+      - ./data:/app/data:rw
+      - ./locales:/app/locales:rw
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+      - ./uploads:/app/uploads:rw
+    networks:
+      - remnawave-network
+      - bot_network
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 512
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8081/health/clone-host', timeout=5)\"",
+        ]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
 volumes:
   postgres_data:
     driver: local

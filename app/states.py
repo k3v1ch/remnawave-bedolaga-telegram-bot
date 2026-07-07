@@ -10,6 +10,16 @@ class CloneBotStates(StatesGroup):
     # Управление уже созданным ботом из панели «Мои боты»:
     waiting_for_rename = State()  # новое название (profile title)
     waiting_for_new_token = State()  # замена токена того же бота
+    # Обязательная подписка (панель «Мои боты»):
+    waiting_for_sub_channel = State()  # @username канала
+    waiting_for_sub_text = State()  # кастомный текст заглушки
+    # Рекламные ссылки:
+    waiting_for_link_name = State()  # название новой ссылки
+    # Рассылки:
+    waiting_for_broadcast_post = State()  # пост (текст или фото с подписью)
+    waiting_for_broadcast_button = State()  # URL-кнопка «Текст - https://…»
+    # Наценка (только партнёры):
+    waiting_for_markup = State()  # процент 0–500
 
 
 class RegistrationStates(StatesGroup):

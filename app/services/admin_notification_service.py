@@ -2146,6 +2146,57 @@ class AdminNotificationService:
             logger.error('Ошибка отправки уведомления о заявке в TikTok-программу', error=e)
             return False
 
+    async def send_clone_bot_created_notification(
+        self,
+        owner: User,
+        *,
+        bot_username: str | None,
+        bot_title: str | None,
+        profile_title: str,
+        clone_id: int,
+        bot_id: int,
+    ) -> bool:
+        """Уведомление о создании нового клон-бота реселлером."""
+        if not self._is_enabled():
+            return False
+
+        try:
+            user_display = self._get_user_display(owner)
+            user_id_display = self._get_user_identifier_display(owner)
+
+            message_lines = [
+                '🤖 <b>СОЗДАН КЛОН-БОТ</b>',
+                '',
+                f'👤 Владелец: {user_display} ({user_id_display})',
+            ]
+
+            username = getattr(owner, 'username', None)
+            if username:
+                message_lines.append(f'📱 @{html.escape(username)}')
+
+            message_lines.append('')
+
+            if bot_username:
+                message_lines.append(f'🔗 Бот: @{html.escape(bot_username)}')
+            if bot_title:
+                message_lines.append(f'🏷️ Название бота: {html.escape(bot_title)}')
+            message_lines.append(f'📦 Профиль/сквад: {html.escape(profile_title)}')
+
+            message_lines.extend(
+                [
+                    '',
+                    f'🆔 ID клона: <code>{clone_id}</code> • Bot ID: <code>{bot_id}</code>',
+                    '',
+                    f'⏰ <i>{format_local_datetime(datetime.now(UTC), "%d.%m.%Y %H:%M:%S")}</i>',
+                ]
+            )
+
+            return await self._send_message('\n'.join(message_lines), category=NotificationCategory.PARTNERS)
+
+        except Exception as e:
+            logger.error('Ошибка отправки уведомления о создании клон-бота', error=e)
+            return False
+
     async def send_withdrawal_request_notification(
         self,
         user: User,

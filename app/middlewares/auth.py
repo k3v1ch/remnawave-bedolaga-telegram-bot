@@ -239,6 +239,23 @@ class AuthMiddleware(BaseMiddleware):
                 if clone is not None and getattr(db_user, 'clone_bot_id', None) is None:
                     db_user.clone_bot_id = getattr(clone, 'clone_id', None)
                     logger.info('🔗 Attributed user to clone bot', user_id=user.id, clone_id=db_user.clone_bot_id)
+                    # Рекламная ссылка клона: если юзер пришёл по ad_<slug> (/start положил
+                    # pending в Redis), привязываем ссылку и считаем регистрацию. Мягкая
+                    # метрика — любые сбои глотаем, обработка апдейта важнее.
+                    try:
+                        from app.database.crud.clone_bot_link import get_link, pop_pending_link
+
+                        pending_link_id = await pop_pending_link(user.id)
+                        if pending_link_id:
+                            link = await get_link(db, pending_link_id)
+                            if link is not None and link.clone_bot_id == db_user.clone_bot_id:
+                                db_user.clone_link_id = link.id
+                                link.registrations_count = (link.registrations_count or 0) + 1
+                                logger.info(
+                                    '🔗 Attributed user to clone ad link', user_id=user.id, link_id=link.id
+                                )
+                    except Exception:
+                        logger.warning('Clone ad-link attribution failed', user_id=user.id, exc_info=True)
 
                 data['db'] = db
                 data['db_user'] = db_user
