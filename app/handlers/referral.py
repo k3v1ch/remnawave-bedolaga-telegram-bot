@@ -517,6 +517,11 @@ async def create_invite_message(callback: types.CallbackQuery, db_user: User):
     # её НЕ дублируем. Сайт — единственная явная ссылка в теле; в клонах его нет.
     cabinet_part = f'\n\n🌐 Или заходи с сайта: {cabinet_referral_link}' if cabinet_referral_link else ''
     share_text = invite_template.format(bonus_block=bonus_block, cabinet_block=cabinet_part).strip()
+    # Текст шеринга уходит в url кнопки t.me/share — мимо white-label патча Message.answer,
+    # поэтому ребрендим вручную (на основном боте _rebrand — no-op).
+    from app.utils.message_patch import _rebrand
+
+    share_text = _rebrand(share_text)
     # t.me/share: тап → выбор чата → отправка. url обязателен (с пустым кнопка не тыкается),
     # кладём в него ссылку на бота — да, Telegram покажет её превью сверху (так и решили).
     # quote_via=quote → пробелы кодируются как %20, а не «+»: иначе на мобильном Telegram

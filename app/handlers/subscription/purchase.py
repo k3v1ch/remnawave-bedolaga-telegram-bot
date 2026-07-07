@@ -431,8 +431,10 @@ async def show_subscription_info(callback: types.CallbackQuery, db_user: User, d
                         tariff_info_lines.append('⏳ Первое списание скоро')
 
                 # CUSTOM-UI: у триальщиков карточку тарифа не показываем — она дублирует
-                # «Информация о подписке» ниже и путает на пустом триале.
-                if not subscription.is_trial:
+                # «Информация о подписке» ниже и путает на пустом триале. Периодную карточку
+                # прячем и при 0 подключённых устройств — те же строки уже есть на экране;
+                # суточная остаётся всегда: в ней цена и прогресс до списания.
+                if not subscription.is_trial and (is_daily or devices_count > 0):
                     tariff_info_block = '\n<blockquote expandable>' + '\n'.join(tariff_info_lines) + '</blockquote>'
 
         except Exception as e:

@@ -18,8 +18,11 @@ LOGO_PATH = Path(settings.LOGO_FILE)
 
 # White-label: in a clone-bot context every outgoing text has our brand swapped for the
 # clone's own name, and the logo image is suppressed entirely. Only the brand+"VPN" form
-# is matched so the adverb "верно" ("работает верно") is left intact.
-_BRAND_RE = re.compile(r'(?:верно|verno)\s*vpn', re.IGNORECASE)
+# is matched so the adverb "верно" ("работает верно") is left intact. Whitespace is
+# REQUIRED (\s+): the no-space form only occurs inside domains/usernames
+# (sub.vernovpn.com, @VernoVPNbot) — rebranding those produced dead links like
+# sub.<clone>.com in the subscription URL.
+_BRAND_RE = re.compile(r'(?:верно|verno)\s+vpn', re.IGNORECASE)
 
 
 def _rebrand(text: str | None) -> str | None:
