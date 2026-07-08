@@ -250,7 +250,7 @@ CUSTOM_TIKTOK_RULES_SCREEN_DEFAULT = (
 )
 
 CUSTOM_CREATE_VPN_SCREEN_DEFAULT = (
-    '💸 Создайте своего VPN-бота, монетезируйте свою аудиторию и зарабатывайте с каждой продажи!\n'
+    '💸 Создайте своего VPN-бота, монетизируйте свою аудиторию и зарабатывайте с каждой продажи!\n'
     '\n'
     'У Вас есть трафик, канал, чат или комьюнити?\n'
     'Превратите это в доход и получайте до 90% с оплат в вашем боте!\n'
@@ -258,7 +258,11 @@ CUSTOM_CREATE_VPN_SCREEN_DEFAULT = (
     '⚡ Как это работает:\n'
     '1. Создаете или подключаете уже существующего бота\n'
     '2. Подключаетесь к нашей инфраструктуре с помощью API\n'
-    '3. Привлекаете аудиторию, получаете прибыль'
+    '3. Привлекаете аудиторию, получаете прибыль\n'
+    '\n'
+    '💡 Процент с продаж получают только партнёры — владельцы подключённых ботов.\n'
+    'Для всех остальных действует обычная реферальная программа: +{referral_days} дн. '
+    'к подписке за каждое пополнение приглашённого друга.'
 )
 
 
@@ -334,6 +338,11 @@ async def show_create_vpn(callback: types.CallbackQuery, db_user: User, db):
     max_bots = settings.CLONE_MAX_PER_USER
     texts = get_texts(db_user.language)
     caption = texts.t('CUSTOM_CREATE_VPN_SCREEN', CUSTOM_CREATE_VPN_SCREEN_DEFAULT)
+    # Плейсхолдер дней рефералки — необязательный (кастомный текст может его не содержать)
+    try:
+        caption = caption.replace('{referral_days}', str(settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS))
+    except Exception:
+        pass
     try:
         await edit_or_answer_photo(
             callback=callback,

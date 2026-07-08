@@ -70,6 +70,14 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
     lines: list[str] = [texts.t('REFERRAL_INFO_HEADER', '🚀 <b>Реферальная система</b>'), '']
 
     # --- Блок наград ---
+    # Что получает сам друг (общая строка для обеих веток)
+    friend_bonus_item = None
+    if settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS > 0:
+        friend_bonus_item = texts.t(
+            'REFERRAL_INFO_REWARD_FRIEND_BONUS',
+            'Друг получает бонус {bonus} на первое пополнение',
+        ).format(bonus=texts.format_price(settings.REFERRAL_FIRST_TOPUP_BONUS_KOPEKS))
+
     if db_user.is_partner:
         lines.append(texts.t('REFERRAL_INFO_REWARD_PARTNER_TITLE', '💸 <b>Партнёрская программа</b>'))
         reward_items = [
@@ -78,6 +86,8 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
                 'Друг регистрируется и оплачивает подписку от {minimum}',
             ).format(minimum=minimum_price),
         ]
+        if friend_bonus_item:
+            reward_items.append(friend_bonus_item)
         if commission_percent > 0:
             reward_items.append(
                 texts.t(
@@ -93,6 +103,8 @@ async def show_referral_info(callback: types.CallbackQuery, db_user: User, db: A
                 'Друг регистрируется и оплачивает подписку от {minimum}',
             ).format(minimum=minimum_price),
         ]
+        if friend_bonus_item:
+            reward_items.append(friend_bonus_item)
         if settings.REFERRAL_INVITER_TOPUP_BONUS_DAYS > 0:
             reward_items.append(
                 texts.t(
