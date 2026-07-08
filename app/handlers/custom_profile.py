@@ -64,18 +64,48 @@ MAX_CODE_ATTEMPTS = 3
 
 # Тумблеры уведомлений (SCR-NOTIFICATIONS). Ключи/дефолты канонические
 # (app.utils.notification_prefs), поэтому переключение РЕАЛЬНО гейтит отправку
-# уведомлений Бедолаги, а не просто сохраняется. Маппинг на 4 пункта макета.
+# уведомлений Бедолаги, а не просто сохраняется. Полный паритет с кабинетом:
+# 5 тумблеров + числовые опции (дни/процент/порог).
 CUSTOM_NOTIF_TOGGLES = (
     ('subscription_expiry_enabled', '📅 Истечение подписки'),
+    ('traffic_warning_enabled', '📊 Лимит трафика'),
     ('balance_low_enabled', '💸 Низкий баланс'),
-    ('promo_offers_enabled', '🎁 Бонусы и акции'),
     ('news_enabled', '🤖 Новости'),
+    ('promo_offers_enabled', '🎁 Бонусы и акции'),
 )
 CUSTOM_NOTIF_KEYS = frozenset(k for k, _ in CUSTOM_NOTIF_TOGGLES)
+
+# Числовые опции. Значения-пресеты согласованы с кабинетом; клампы при чтении —
+# в app/utils/notification_prefs (дни ≥1, процент 50–99, порог ≥0).
+# gate_key — тумблер, при выключенном тумблере строка опции не показывается.
+CUSTOM_NOTIF_OPTIONS: dict[str, dict] = {
+    'subscription_expiry_days': {
+        'gate_key': 'subscription_expiry_enabled',
+        'label': '📆 Дней до окончания',
+        'title': '📆 За сколько дней предупреждать об истечении подписки?',
+        'values': (1, 2, 3, 5, 7, 14),
+        'fmt': lambda v: f'{v} дн.',
+    },
+    'traffic_warning_percent': {
+        'gate_key': 'traffic_warning_enabled',
+        'label': '⚠️ При использовании',
+        'title': '📊 При каком проценте использования трафика предупреждать?',
+        'values': (50, 70, 80, 90, 95),
+        'fmt': lambda v: f'{v}%',
+    },
+    'balance_low_threshold': {
+        'gate_key': 'balance_low_enabled',
+        'label': '💰 Порог баланса',
+        'title': '💰 При каком остатке на балансе предупреждать?',
+        'values': (5000, 10000, 20000, 50000, 100000),  # копейки
+        'fmt': lambda v: f'{int(v) // 100} ₽',
+    },
+}
 CUSTOM_NOTIF_SCREEN_DEFAULT = (
     '🔔 Настройки уведомлений\n'
     '\n'
-    'Нажмите на пункт, чтобы включить или выключить:'
+    'Нажмите на пункт, чтобы включить или выключить.\n'
+    'У включённых пунктов ниже настраиваются пороги.'
 )
 
 
@@ -758,6 +788,19 @@ def _notif_keyboard(user: User, texts) -> InlineKeyboardMarkup:
         rows.append([
             InlineKeyboardButton(text=f'{label}: {"✅" if on else "❌"}', callback_data=f'kprofile_notif_toggle:{key}')
         ])
+        if not on:
+            continue
+        # Числовые опции включённого тумблера (дни/процент/порог)
+        for opt_key, opt in CUSTOM_NOTIF_OPTIONS.items():
+            if opt['gate_key'] != key:
+                continue
+            current = get_user_notification_pref(user, opt_key)
+            rows.append([
+                InlineKeyboardButton(
+                    text=f'   {opt["label"]}: {opt["fmt"](current)} ›',
+                    callback_data=f'kprofile_notif_opt:{opt_key}',
+                )
+            ])
     rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_BACK_BUTTON', '‹ К профилю'), callback_data='custom_profile')])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -801,6 +844,73 @@ async def toggle_notification(callback: types.CallbackQuery, db_user: User, db: 
         parse_mode='HTML',
     )
     await callback.answer('🔔 Включено' if new_value else '🔕 Выключено')
+
+
+async def show_notification_option(callback: types.CallbackQuery, db_user: User):
+    """Экран выбора значения числовой опции (дни/процент/порог)."""
+    texts = get_texts(db_user.language)
+    data = callback.data or ''
+    opt_key = data.split(':', 1)[1] if ':' in data else ''
+    opt = CUSTOM_NOTIF_OPTIONS.get(opt_key)
+    if not opt:
+        await callback.answer()
+        return
+    current = get_user_notification_pref(db_user, opt_key)
+    rows: list[list[InlineKeyboardButton]] = []
+    for value in opt['values']:
+        marker = '✅ ' if value == current else ''
+        rows.append([
+            InlineKeyboardButton(
+                text=f'{marker}{opt["fmt"](value)}',
+                callback_data=f'kprofile_notif_set:{opt_key}:{value}',
+            )
+        ])
+    rows.append([InlineKeyboardButton(text=texts.BACK, callback_data='kprofile_notifications')])
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=opt['title'],
+        keyboard=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode='HTML',
+    )
+    await callback.answer()
+
+
+async def set_notification_option(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
+    """Сохранение выбранного значения числовой опции."""
+    texts = get_texts(db_user.language)
+    parts = (callback.data or '').split(':')
+    if len(parts) != 3:
+        await callback.answer()
+        return
+    _, opt_key, raw_value = parts
+    opt = CUSTOM_NOTIF_OPTIONS.get(opt_key)
+    try:
+        value = int(raw_value)
+    except ValueError:
+        await callback.answer()
+        return
+    if not opt or value not in opt['values']:
+        await callback.answer()
+        return
+    try:
+        new_settings = dict(db_user.notification_settings or {})
+        new_settings[opt_key] = value
+        db_user.notification_settings = new_settings  # переприсваиваем dict — фиксируем изменение JSONB
+        await db.commit()
+        await db.refresh(db_user)
+        logger.info('custom_profile: числовая опция уведомлений', user_id=db_user.id, key=opt_key, value=value)
+    except Exception as error:
+        await db.rollback()
+        logger.error('custom_profile: ошибка сохранения опции', user_id=db_user.id, key=opt_key, error=str(error))
+        await callback.answer('Ошибка сохранения', show_alert=True)
+        return
+    await edit_or_answer_photo(
+        callback=callback,
+        caption=texts.t('CUSTOM_NOTIF_SCREEN', CUSTOM_NOTIF_SCREEN_DEFAULT),
+        keyboard=_notif_keyboard(db_user, texts),
+        parse_mode='HTML',
+    )
+    await callback.answer(f'✅ {opt["fmt"](value)}')
 
 
 async def show_manage(callback: types.CallbackQuery, db_user: User, db: AsyncSession):
@@ -857,6 +967,8 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(change_password_start, F.data == 'kprofile_change_password')
     dp.callback_query.register(show_notifications, F.data == 'kprofile_notifications')
     dp.callback_query.register(toggle_notification, F.data.startswith('kprofile_notif_toggle:'))
+    dp.callback_query.register(show_notification_option, F.data.startswith('kprofile_notif_opt:'))
+    dp.callback_query.register(set_notification_option, F.data.startswith('kprofile_notif_set:'))
 
     dp.message.register(bind_email, StateFilter(BindEmailStates.waiting_email))
     dp.message.register(bind_password, StateFilter(BindEmailStates.waiting_password))
