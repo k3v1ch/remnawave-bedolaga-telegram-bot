@@ -1,8 +1,12 @@
 """Regression (#3): on a fully EXPIRED subscription the "📦 Тариф" (change-tariff)
-button used to be shown in the subscription menu, but the handler blocked the action
-("Переключение недоступно") — a dead button. Now expired/disabled subs show
-"📦 Купить тариф" (menu_buy / fresh purchase) instead, and active subs keep the
-normal change-tariff button.
+button used to be shown, but the handler blocked the action ("Переключение
+недоступно") — a dead button. Now expired/disabled subs show "📦 Купить тариф"
+(menu_buy / fresh purchase) instead, and active subs keep the normal
+change-tariff button.
+
+CUSTOM-UI note: in this fork the tariff button lives in the «⚙️ Управление»
+submenu (get_subscription_manage_keyboard), not on the main subscription
+screen, so the guard asserts on that keyboard.
 """
 
 from __future__ import annotations
@@ -35,14 +39,11 @@ def _patch_tariffs_mode(monkeypatch):
     # class — patch them on the class (the singleton instance can't take new attrs).
     monkeypatch.setattr(Settings, 'is_tariffs_mode', lambda self: True)
     monkeypatch.setattr(Settings, 'is_multi_tariff_enabled', lambda self: True)
-    monkeypatch.setattr(kb, 'get_display_subscription_link', lambda sub: None)
 
 
 def test_expired_sub_offers_buy_not_switch(monkeypatch):
     _patch_tariffs_mode(monkeypatch)
-    markup = kb.get_subscription_keyboard(
-        'ru', has_subscription=True, is_trial=False, subscription=_fake_sub('expired', 'expired')
-    )
+    markup = kb.get_subscription_manage_keyboard('ru', is_trial=False, subscription=_fake_sub('expired', 'expired'))
     cbs = _callbacks(markup)
     assert 'menu_buy' in cbs  # fresh-purchase entry shown instead
     assert 'instant_switch' not in cbs
@@ -51,9 +52,7 @@ def test_expired_sub_offers_buy_not_switch(monkeypatch):
 
 def test_disabled_sub_offers_buy_not_switch(monkeypatch):
     _patch_tariffs_mode(monkeypatch)
-    markup = kb.get_subscription_keyboard(
-        'ru', has_subscription=True, is_trial=False, subscription=_fake_sub('disabled', 'disabled')
-    )
+    markup = kb.get_subscription_manage_keyboard('ru', is_trial=False, subscription=_fake_sub('disabled', 'disabled'))
     cbs = _callbacks(markup)
     assert 'menu_buy' in cbs
     assert 'instant_switch' not in cbs
@@ -61,9 +60,7 @@ def test_disabled_sub_offers_buy_not_switch(monkeypatch):
 
 def test_active_sub_keeps_change_tariff(monkeypatch):
     _patch_tariffs_mode(monkeypatch)
-    markup = kb.get_subscription_keyboard(
-        'ru', has_subscription=True, is_trial=False, subscription=_fake_sub('active', 'active')
-    )
+    markup = kb.get_subscription_manage_keyboard('ru', is_trial=False, subscription=_fake_sub('active', 'active'))
     cbs = _callbacks(markup)
     assert 'instant_switch' in cbs  # normal switch flow untouched
     assert 'menu_buy' not in cbs
@@ -72,8 +69,6 @@ def test_active_sub_keeps_change_tariff(monkeypatch):
 def test_limited_sub_keeps_change_tariff(monkeypatch):
     """'limited' = traffic exhausted but time remaining (end_date>now) — switch still valid."""
     _patch_tariffs_mode(monkeypatch)
-    markup = kb.get_subscription_keyboard(
-        'ru', has_subscription=True, is_trial=False, subscription=_fake_sub('limited', 'limited')
-    )
+    markup = kb.get_subscription_manage_keyboard('ru', is_trial=False, subscription=_fake_sub('limited', 'limited'))
     cbs = _callbacks(markup)
     assert 'instant_switch' in cbs
