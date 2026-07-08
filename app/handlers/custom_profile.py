@@ -13,6 +13,9 @@
 Флоу:
 1. Привязка (только TG → email): email → пароль → код на email → ввод кода → сохранение.
    Любой сбой/отмена/неверный код/истечение → НИЧЕГО не сохраняется (полный сброс).
+1а. Если email занят email-аккаунтом кабинета (без TG) — предлагаем ОБЪЕДИНЕНИЕ
+    (тот же account_merge_service, что и на сайте): код на почту (доказательство
+    владения ящиком) → превью балансов/подписок → выбор подписки → merge.
 2. Смена email (2 кода): код на текущую почту → новый email → код на новый email.
 3. Смена пароля: текущий пароль (проверка) → новый пароль.
 
@@ -41,11 +44,12 @@ from app.cabinet.auth.password_utils import hash_password, verify_password
 from app.cabinet.services.email_service import email_service
 from app.database.crud.user import (
     clear_email_change_pending,
+    get_user_by_email,
     is_email_taken,
     set_email_change_pending,
     verify_and_apply_email_change,
 )
-from app.database.models import User
+from app.database.models import User, UserStatus
 from app.localization.texts import get_texts
 from app.utils.notification_prefs import get_user_notification_pref
 from app.utils.photo_message import edit_or_answer_photo
@@ -83,6 +87,13 @@ class BindEmailStates(StatesGroup):
     waiting_email = State()
     waiting_password = State()
     waiting_code = State()
+
+
+class MergeEmailStates(StatesGroup):
+    """Объединение с email-аккаунтом кабинета (email занят другим аккаунтом без TG)."""
+
+    waiting_code = State()
+    waiting_choice = State()
 
 
 class ChangeEmailStates(StatesGroup):
@@ -227,6 +238,44 @@ async def bind_email(message: types.Message, db_user: User, db: AsyncSession, st
         return
     if await is_email_taken(db, email):
         logger.info('custom_profile: email занят', user_id=db_user.id, email=_mask_email(email))
+        owner = await get_user_by_email(db, email)
+        # Merge предлагаем только когда это безопасно и осмысленно:
+        # владелец — email-аккаунт кабинета БЕЗ Telegram (иначе объединение
+        # убило бы чужой TG-аккаунт), у текущего юзера ещё нет email,
+        # и мы в основном боте (в клонах кабинета нет).
+        can_merge = (
+            owner is not None
+            and owner.id != db_user.id
+            and owner.status != UserStatus.DELETED.value
+            and not owner.telegram_id
+            and not db_user.email
+            and not db_user.clone_bot_id
+        )
+        if can_merge:
+            await state.update_data(merge_email=email, merge_secondary_id=owner.id)
+            logger.info(
+                'custom_profile: email занят кабинет-аккаунтом, предлагаем merge',
+                user_id=db_user.id,
+                owner_id=owner.id,
+            )
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_MERGE_BUTTON', '🔗 Объединить аккаунты'), callback_data='kprofile_merge_send')],
+                    [InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_CANCEL_BUTTON', '✖️ Отмена'), callback_data='kprofile_cancel')],
+                ]
+            )
+            await message.answer(
+                f'⚠️ Email <code>{html.escape(email)}</code> уже используется аккаунтом личного кабинета (вход по почте).\n'
+                '\n'
+                'Можно <b>объединить</b> его с этим Telegram-аккаунтом: баланс, подписка и почта переедут сюда, '
+                'вход на сайт останется по этой почте.\n'
+                '\n'
+                'Для подтверждения мы отправим код на этот email.\n'
+                'Либо просто введите другой email:',
+                parse_mode='HTML',
+                reply_markup=keyboard,
+            )
+            return
         await message.answer('❌ Этот email уже используется. Введите другой:', reply_markup=_cancel_keyboard(texts))
         return
     await state.update_data(email=email)
@@ -310,6 +359,225 @@ async def bind_code(message: types.Message, db_user: User, db: AsyncSession, sta
     await state.clear()
     logger.info('custom_profile: привязка завершена', user_id=db_user.id, email=_mask_email(email))
     await message.answer(f'✅ Email привязан: <code>{html.escape(email)}</code>\nТеперь вы можете входить в личный кабинет на сайте по email и паролю.', parse_mode='HTML', reply_markup=_back_to_profile_keyboard(texts))
+
+
+# ─────────────────────────────────────────────────────────────
+# Объединение с email-аккаунтом кабинета (тот же merge, что и на сайте)
+# ─────────────────────────────────────────────────────────────
+
+def _merge_fmt_subscription(sub: dict | None) -> str:
+    if not sub:
+        return 'нет'
+    name = sub.get('tariff_name') or ('триал' if sub.get('is_trial') else 'подписка')
+    end = sub.get('end_date')
+    end_text = end.strftime('%d.%m.%Y') if end else '—'
+    active = ' (активна)' if sub.get('status') == 'active' else ''
+    return f'{name}, до {end_text}{active}'
+
+
+async def _load_merge_secondary(db: AsyncSession, db_user: User, data: dict) -> tuple[User | None, str | None]:
+    """Перепроверка перед каждым шагом merge: владелец email мог измениться."""
+    email = data.get('merge_email')
+    secondary_id = data.get('merge_secondary_id')
+    if not (email and secondary_id):
+        return None, 'Сессия объединения сброшена, начните заново.'
+    owner = await get_user_by_email(db, email)
+    if (
+        owner is None
+        or owner.id != secondary_id
+        or owner.id == db_user.id
+        or owner.status == UserStatus.DELETED.value
+        or owner.telegram_id
+    ):
+        return None, 'Этот аккаунт больше недоступен для объединения.'
+    if db_user.email:
+        return None, 'У вас уже привязан email — объединение невозможно.'
+    return owner, None
+
+
+async def merge_send_code(callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext):
+    texts = get_texts(db_user.language)
+    data = await state.get_data()
+    owner, err = await _load_merge_secondary(db, db_user, data)
+    if not owner:
+        await state.clear()
+        await callback.answer(err, show_alert=True)
+        return
+    email = data['merge_email']
+    code = generate_email_change_code()
+    expires = get_email_change_expires_at()
+    if not await _send_code(email, code, db_user.full_name):
+        logger.warning('custom_profile: не удалось отправить код merge', user_id=db_user.id, email=_mask_email(email))
+        await state.clear()
+        await callback.message.answer('❌ Не удалось отправить код на почту. Объединение отменено.', reply_markup=_back_to_profile_keyboard(texts))
+        await callback.answer()
+        return
+    await state.update_data(merge_code=code, merge_expires=expires.isoformat(), merge_attempts=0, merge_code_ok=False)
+    await state.set_state(MergeEmailStates.waiting_code)
+    logger.info('custom_profile: код merge отправлен', user_id=db_user.id, owner_id=owner.id, email=_mask_email(email))
+    logger.debug('custom_profile: код merge (dev)', user_id=db_user.id, code=code)
+    await callback.message.answer(
+        f'📨 Код подтверждения отправлен на <code>{html.escape(email)}</code>.\n'
+        'Введите код из письма, чтобы подтвердить, что почта ваша:',
+        parse_mode='HTML',
+        reply_markup=_cancel_keyboard(texts),
+    )
+    await callback.answer()
+
+
+async def merge_code_entry(message: types.Message, db_user: User, db: AsyncSession, state: FSMContext):
+    texts = get_texts(db_user.language)
+    entered = (message.text or '').strip()
+    await _safe_delete(message)
+    data = await state.get_data()
+    code = data.get('merge_code')
+    if not (code and data.get('merge_expires')):
+        await state.clear()
+        await message.answer('Сессия сброшена, начните заново.', reply_markup=_back_to_profile_keyboard(texts))
+        return
+    if _expired(data.get('merge_expires')):
+        await state.clear()
+        logger.info('custom_profile: код merge истёк', user_id=db_user.id)
+        await message.answer('⌛ Код истёк. Объединение отменено, ничего не изменено.', reply_markup=_back_to_profile_keyboard(texts))
+        return
+    if not hmac.compare_digest(entered, str(code)):
+        attempts = int(data.get('merge_attempts', 0)) + 1
+        if attempts >= MAX_CODE_ATTEMPTS:
+            await state.clear()
+            logger.info('custom_profile: превышены попытки кода merge', user_id=db_user.id)
+            await message.answer('❌ Слишком много неверных попыток. Объединение отменено.', reply_markup=_back_to_profile_keyboard(texts))
+            return
+        await state.update_data(merge_attempts=attempts)
+        await message.answer(f'❌ Неверный код. Осталось попыток: {MAX_CODE_ATTEMPTS - attempts}. Введите код:', reply_markup=_cancel_keyboard(texts))
+        return
+
+    owner, err = await _load_merge_secondary(db, db_user, data)
+    if not owner:
+        await state.clear()
+        await message.answer(f'❌ {err}', reply_markup=_back_to_profile_keyboard(texts))
+        return
+
+    from app.services.account_merge_service import get_merge_preview
+
+    try:
+        preview = await get_merge_preview(db, db_user.id, owner.id)
+    except ValueError as error:
+        logger.error('custom_profile: ошибка merge preview', user_id=db_user.id, error=str(error))
+        await state.clear()
+        await message.answer('❌ Не удалось получить данные аккаунтов. Объединение отменено.', reply_markup=_back_to_profile_keyboard(texts))
+        return
+
+    p, s = preview['primary'], preview['secondary']
+    p_sub, s_sub = p.get('subscription'), s.get('subscription')
+    total_balance = int(p.get('balance_kopeks', 0)) + int(s.get('balance_kopeks', 0))
+
+    from app.config import settings
+
+    lines = [
+        '🔗 <b>Объединение аккаунтов</b>',
+        '',
+        '<b>Этот Telegram-аккаунт:</b>',
+        f'  Баланс: {settings.format_price(int(p.get("balance_kopeks", 0)))}',
+        f'  Подписка: {_merge_fmt_subscription(p_sub)}',
+        '',
+        f'<b>Аккаунт кабинета</b> (<code>{html.escape(data["merge_email"])}</code>):',
+        f'  Баланс: {settings.format_price(int(s.get("balance_kopeks", 0)))}',
+        f'  Подписка: {_merge_fmt_subscription(s_sub)}',
+        '',
+        f'После объединения: балансы суммируются ({settings.format_price(total_balance)}), '
+        'почта и история платежей переедут в этот Telegram-аккаунт. Действие необратимо.',
+    ]
+
+    rows: list[list[InlineKeyboardButton]] = []
+    if p_sub and s_sub:
+        lines.append('')
+        lines.append('⚠️ Подписки есть у обоих аккаунтов — выберите, какую оставить (вторая будет удалена):')
+        rows.append([InlineKeyboardButton(text='Оставить подписку этого аккаунта', callback_data='kprofile_merge_go:primary')])
+        rows.append([InlineKeyboardButton(text='Оставить подписку кабинета', callback_data='kprofile_merge_go:secondary')])
+        auto_keep = 'primary'
+    else:
+        auto_keep = 'secondary' if s_sub else 'primary'
+        rows.append([InlineKeyboardButton(text='✅ Объединить аккаунты', callback_data='kprofile_merge_go:auto')])
+    rows.append([InlineKeyboardButton(text=texts.t('CUSTOM_PROFILE_CANCEL_BUTTON', '✖️ Отмена'), callback_data='kprofile_cancel')])
+
+    await state.update_data(merge_code_ok=True, merge_keep=auto_keep)
+    await state.set_state(MergeEmailStates.waiting_choice)
+    logger.info('custom_profile: код merge подтверждён, показано превью', user_id=db_user.id, owner_id=owner.id)
+    await message.answer('\n'.join(lines), parse_mode='HTML', reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+async def merge_execute(callback: types.CallbackQuery, db_user: User, db: AsyncSession, state: FSMContext):
+    texts = get_texts(db_user.language)
+    data = await state.get_data()
+    if not data.get('merge_code_ok'):
+        await state.clear()
+        await callback.answer('Сессия объединения сброшена, начните заново.', show_alert=True)
+        return
+    owner, err = await _load_merge_secondary(db, db_user, data)
+    if not owner:
+        await state.clear()
+        await callback.answer(err, show_alert=True)
+        return
+
+    choice = (callback.data or '').split(':', 1)[-1]
+    keep = data.get('merge_keep', 'primary') if choice == 'auto' else choice
+    if keep not in ('primary', 'secondary'):
+        keep = 'primary'
+    email = data['merge_email']
+
+    from app.services.account_merge_service import execute_merge, flush_remnawave_deletions
+
+    deferred_deletions: list[str] = []
+    try:
+        await execute_merge(
+            db=db,
+            primary_user_id=db_user.id,
+            secondary_user_id=owner.id,
+            keep_subscription_from=keep,
+            provider='email',
+            provider_id=email,
+            deferred_remnawave_deletions=deferred_deletions,
+        )
+        await db.commit()
+    except ValueError as error:
+        await db.rollback()
+        await state.clear()
+        logger.error('custom_profile: merge отклонён', user_id=db_user.id, owner_id=owner.id, error=str(error))
+        await callback.message.answer('❌ Объединение не выполнено: аккаунты изменились. Начните заново.', reply_markup=_back_to_profile_keyboard(texts))
+        await callback.answer()
+        return
+    except Exception as error:
+        await db.rollback()
+        await state.clear()
+        logger.exception('custom_profile: ошибка выполнения merge', user_id=db_user.id, owner_id=owner.id, error=str(error))
+        await callback.message.answer('❌ Внутренняя ошибка при объединении. Ничего не изменено, попробуйте позже.', reply_markup=_back_to_profile_keyboard(texts))
+        await callback.answer()
+        return
+
+    # Панельные операции — только после успешного commit (как в кабинете)
+    await flush_remnawave_deletions(deferred_deletions)
+    try:
+        from app.services.remnawave_resync_service import resync_user_subscriptions_with_panel
+
+        await resync_user_subscriptions_with_panel(db, db_user)
+    except Exception as error:
+        logger.error('custom_profile: post-merge resync failed (non-fatal)', user_id=db_user.id, error=str(error))
+
+    await state.clear()
+    try:
+        await db.refresh(db_user)
+    except Exception:
+        pass
+    logger.info('custom_profile: merge завершён', user_id=db_user.id, owner_id=owner.id, keep=keep, email=_mask_email(email))
+    await callback.message.answer(
+        f'✅ Аккаунты объединены!\n'
+        f'\n'
+        f'Email <code>{html.escape(email)}</code> привязан к этому Telegram-аккаунту, '
+        f'баланс и подписка перенесены. Вход на сайт — по этой почте с прежним паролем.',
+        parse_mode='HTML',
+        reply_markup=_back_to_profile_keyboard(texts),
+    )
+    await callback.answer()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -583,6 +851,8 @@ def register_handlers(dp: Dispatcher):
     dp.callback_query.register(show_profile, F.data == 'custom_profile')
     dp.callback_query.register(cancel_flow, F.data == 'kprofile_cancel')
     dp.callback_query.register(bind_start, F.data == 'kprofile_bind')
+    dp.callback_query.register(merge_send_code, F.data == 'kprofile_merge_send')
+    dp.callback_query.register(merge_execute, F.data.startswith('kprofile_merge_go:'))
     dp.callback_query.register(change_email_start, F.data == 'kprofile_change_email')
     dp.callback_query.register(change_password_start, F.data == 'kprofile_change_password')
     dp.callback_query.register(show_notifications, F.data == 'kprofile_notifications')
@@ -591,6 +861,7 @@ def register_handlers(dp: Dispatcher):
     dp.message.register(bind_email, StateFilter(BindEmailStates.waiting_email))
     dp.message.register(bind_password, StateFilter(BindEmailStates.waiting_password))
     dp.message.register(bind_code, StateFilter(BindEmailStates.waiting_code))
+    dp.message.register(merge_code_entry, StateFilter(MergeEmailStates.waiting_code))
     dp.message.register(change_email_current_code, StateFilter(ChangeEmailStates.waiting_current_code))
     dp.message.register(change_email_new, StateFilter(ChangeEmailStates.waiting_new_email))
     dp.message.register(change_email_new_code, StateFilter(ChangeEmailStates.waiting_new_code))
