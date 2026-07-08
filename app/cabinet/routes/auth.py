@@ -1078,8 +1078,18 @@ async def register_email(
             detail='Disposable email addresses are not allowed',
         )
 
-    # Check if email already exists (case-insensitive, exclude deleted users)
+    # SECURITY: never let registration/linking bind an ADMIN_EMAILS address. Admin
+    # authority is keyed off email_verified alone (config.is_admin / get_current_admin_user),
+    # so with email verification disabled this would be a no-proof superadmin grant.
+    # Mirrors the /email/change guard.
     email_lower = (request.email or '').strip().lower()
+    if email_lower and email_lower in {e.lower() for e in settings.get_admin_emails()}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='This email address cannot be linked to your account.',
+        )
+
+    # Check if email already exists (case-insensitive, exclude deleted users)
     existing_result = await db.execute(
         select(User).where(
             func.lower(User.email) == email_lower,
@@ -1115,10 +1125,12 @@ async def register_email(
             lang,
             context={
                 'username': user.first_name or '',
+                'email': email_lower,
                 'code': merge_code,
                 'expire_minutes': str(expire_minutes),
             },
             db=db,
+            required_vars=['code'],
         )
         custom_subject, custom_body = override or (None, None)
         await asyncio.to_thread(
@@ -1170,10 +1182,12 @@ async def register_email(
         lang,
         context={
             'username': user.first_name or '',
+            'email': email_lower,
             'code': link_code,
             'expire_minutes': str(expire_minutes),
         },
         db=db,
+        required_vars=['code'],
     )
     custom_subject, custom_body = override or (None, None)
     sent = await asyncio.to_thread(
@@ -1420,8 +1434,18 @@ async def register_email_standalone(
             detail='Disposable email addresses are not allowed',
         )
 
-    # Проверить что email не занят (без учёта регистра)
+    # SECURITY: never let standalone registration claim an ADMIN_EMAILS address. With
+    # email verification disabled this flow sets email_verified=True with no inbox proof,
+    # and admin authority is keyed off email_verified — so an unverified ADMIN_EMAILS
+    # registration would grant superadmin on first login. Mirrors the /email/change guard.
     email_lower = (request.email or '').strip().lower()
+    if email_lower and email_lower in {e.lower() for e in settings.get_admin_emails()}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='This email address cannot be used for registration.',
+        )
+
+    # Проверить что email не занят (без учёта регистра)
     existing = await db.execute(select(User).where(func.lower(User.email) == email_lower))
     if existing.scalar_one_or_none():
         raise HTTPException(
@@ -1504,10 +1528,12 @@ async def register_email_standalone(
                 lang,
                 context={
                     'username': user.first_name or 'User',
+                    'email': request.email,
                     'verification_url': full_url,
                     'expire_hours': str(expire_hours),
                 },
                 db=db,
+                required_vars=['verification_url'],
             )
             custom_subject, custom_body = override or (None, None)
 
@@ -1646,10 +1672,12 @@ async def resend_verification(
             lang,
             context={
                 'username': user.first_name or '',
+                'email': user.email,
                 'verification_url': full_url,
                 'expire_hours': str(expire_hours),
             },
             db=db,
+            required_vars=['verification_url'],
         )
         custom_subject, custom_body = override or (None, None)
 
@@ -1987,8 +2015,14 @@ async def forgot_password(
         override = await get_rendered_override(
             'password_reset',
             lang,
-            context={'username': user.first_name or '', 'reset_url': full_url, 'expire_hours': str(expire_hours)},
+            context={
+                'username': user.first_name or '',
+                'email': user.email,
+                'reset_url': full_url,
+                'expire_hours': str(expire_hours),
+            },
             db=db,
+            required_vars=['reset_url'],
         )
         custom_subject, custom_body = override or (None, None)
 
@@ -2178,10 +2212,12 @@ async def request_email_change(
                 lang,
                 context={
                     'username': user.first_name or '',
+                    'email': request.new_email,
                     'verification_url': full_url,
                     'expire_hours': str(expire_hours),
                 },
                 db=db,
+                required_vars=['verification_url'],
             )
             custom_subject, custom_body = override or (None, None)
 
@@ -2233,10 +2269,12 @@ async def request_email_change(
             lang,
             context={
                 'username': user.first_name or '',
+                'email': request.new_email,
                 'code': code,
                 'expire_minutes': str(expire_minutes),
             },
             db=db,
+            required_vars=['code'],
         )
         custom_subject, custom_body = override or (None, None)
 

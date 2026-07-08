@@ -120,8 +120,8 @@ services:
       TZ: 'Europe/Moscow'
       LOCALES_PATH: '${LOCALES_PATH:-/app/locales}'
       CLONE_HOST_ENABLED: 'true'
-      DB_POOL_SIZE: '10'
-      DB_MAX_OVERFLOW: '10'
+      DATABASE_POOL_SIZE: '10'
+      DATABASE_MAX_OVERFLOW: '10'
     volumes:
       - ./logs:/app/logs:rw
       - ./data:/app/data:rw
