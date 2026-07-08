@@ -1148,8 +1148,15 @@ class MonitoringService:
                             await record_notification(db, user.id, subscription.id, 'expired_1d')
                             sent_day1 += 1
 
+                # Волны скидок — это промо: уважаем пользовательский тумблер
+                # «Промо-предложения» (кабинет/бот). Day-1 напоминание не гейтим —
+                # оно транзакционное (подписка истекла), без скидки.
+                from app.utils.notification_prefs import is_promo_offers_enabled
+
+                promo_allowed = is_promo_offers_enabled(user)
+
                 # Second wave (2-3 days) discount
-                if NotificationSettingsService.is_second_wave_enabled() and 2 <= days_since < 4:
+                if promo_allowed and NotificationSettingsService.is_second_wave_enabled() and 2 <= days_since < 4:
                     if not await notification_sent(db, user.id, subscription.id, 'expired_discount_wave2'):
                         percent = NotificationSettingsService.get_second_wave_discount_percent()
                         valid_hours = NotificationSettingsService.get_second_wave_valid_hours()
@@ -1176,7 +1183,7 @@ class MonitoringService:
                             sent_wave2 += 1
 
                 # Third wave (N days) discount
-                if NotificationSettingsService.is_third_wave_enabled():
+                if promo_allowed and NotificationSettingsService.is_third_wave_enabled():
                     trigger_days = NotificationSettingsService.get_third_wave_trigger_days()
                     if trigger_days <= days_since < trigger_days + 1:
                         if not await notification_sent(db, user.id, subscription.id, 'expired_discount_wave3'):
