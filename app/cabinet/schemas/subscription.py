@@ -1,6 +1,7 @@
 """Subscription schemas for cabinet."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -44,6 +45,10 @@ class SubscriptionData(BaseModel):
     servers: list[ServerInfo] = []  # Server display info
     autopay_enabled: bool
     autopay_days_before: int
+    # Период продления автоплатежом; None = период тарифа по умолчанию
+    autopay_period_days: int | None = None
+    # Доступные периоды продления (для выбора периода автоплатежа)
+    available_renewal_periods: list[int] = []
     subscription_url: str | None = None
     hide_subscription_link: bool = False  # Скрывать ли отображение ссылки (но кнопки работают)
     is_active: bool
@@ -149,6 +154,10 @@ class AutopayUpdateRequest(BaseModel):
 
     enabled: bool
     days_before: int | None = Field(None, ge=1, le=30, description='Days before expiration to charge')
+    # None = не менять; 'default' = сбросить на период тарифа по умолчанию
+    period_days: int | Literal['default'] | None = Field(
+        None, description="Renewal period in days, or 'default' to reset to the tariff default"
+    )
 
 
 class TrialActivateRequest(BaseModel):

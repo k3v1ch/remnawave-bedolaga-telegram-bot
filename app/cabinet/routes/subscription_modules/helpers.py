@@ -200,6 +200,14 @@ def _subscription_to_response(
     # Проверяем настройку скрытия ссылки (скрывается только текст, кнопки работают)
     hide_link = settings.should_hide_subscription_link()
 
+    # Доступные периоды продления для автоплатежа: периоды тарифа, иначе глобальный список
+    available_renewal_periods: list[int] = []
+    _tariff = getattr(subscription, 'tariff', None) if tariff_id else None
+    if _tariff:
+        available_renewal_periods = sorted(_tariff.get_available_periods() or [])
+    if not available_renewal_periods:
+        available_renewal_periods = sorted(settings.get_available_renewal_periods())
+
     return SubscriptionResponse(
         id=subscription.id,
         status=actual_status,  # Use actual_status instead of raw status
@@ -218,6 +226,8 @@ def _subscription_to_response(
         servers=servers or [],
         autopay_enabled=subscription.autopay_enabled or False,
         autopay_days_before=subscription.autopay_days_before or 3,
+        autopay_period_days=getattr(subscription, 'autopay_period_days', None),
+        available_renewal_periods=available_renewal_periods,
         subscription_url=subscription.subscription_url,
         hide_subscription_link=hide_link,
         is_active=is_active,

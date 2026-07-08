@@ -70,10 +70,31 @@ async def update_autopay(
     if request.days_before is not None:
         subscription.autopay_days_before = request.days_before
 
+    if request.period_days is not None:
+        if request.period_days == 'default':
+            # None = использовать период тарифа по умолчанию (как в боте)
+            subscription.autopay_period_days = None
+        else:
+            # Валидация против доступных периодов подписки (периоды тарифа или глобальный список)
+            from app.config import settings
+
+            await db.refresh(subscription, ['tariff'])
+            tariff = subscription.tariff
+            periods = sorted((tariff.get_available_periods() or []) if tariff else []) or sorted(
+                settings.get_available_renewal_periods()
+            )
+            if request.period_days not in periods:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f'Invalid renewal period. Available: {periods}',
+                )
+            subscription.autopay_period_days = request.period_days
+
     await db.commit()
 
     return {
         'message': 'Autopay settings updated',
         'autopay_enabled': subscription.autopay_enabled,
         'autopay_days_before': subscription.autopay_days_before,
+        'autopay_period_days': subscription.autopay_period_days,
     }
