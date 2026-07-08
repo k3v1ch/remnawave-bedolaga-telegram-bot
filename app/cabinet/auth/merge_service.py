@@ -54,6 +54,41 @@ async def clear_email_merge_otp(initiator_user_id: int) -> None:
     await cache.getdel(cache_key(EMAIL_MERGE_OTP_PREFIX, str(initiator_user_id)))
 
 
+# Pending email-LINK OTP: linking a fresh email to an authenticated account must
+# not touch the account until the user proves inbox control with a one-time code.
+# We stage the email + password HASH (never the plaintext) here and apply them to
+# the user row only in the confirm endpoint. Keyed by user id (one pending link
+# at a time per user).
+EMAIL_LINK_OTP_PREFIX = 'email_link_otp'
+EMAIL_LINK_OTP_TTL_SECONDS = 900  # 15 minutes
+
+
+async def store_email_link_otp(user_id: int, email: str, password_hash: str, code: str) -> None:
+    """Store a pending email-link (email + password hash + code); overwrites any prior."""
+    key = cache_key(EMAIL_LINK_OTP_PREFIX, str(user_id))
+    await cache.set(
+        key,
+        {
+            'email': email,
+            'password_hash': password_hash,
+            'code': code,
+            'created_at': datetime.now(UTC).isoformat(),
+        },
+        expire=EMAIL_LINK_OTP_TTL_SECONDS,
+    )
+
+
+async def get_email_link_otp(user_id: int) -> dict[str, Any] | None:
+    """Read the pending email-link data without consuming it."""
+    data: Any = await cache.get(cache_key(EMAIL_LINK_OTP_PREFIX, str(user_id)))
+    return data if isinstance(data, dict) else None
+
+
+async def clear_email_link_otp(user_id: int) -> None:
+    """Drop the pending email-link data."""
+    await cache.getdel(cache_key(EMAIL_LINK_OTP_PREFIX, str(user_id)))
+
+
 async def create_merge_token(
     primary_user_id: int,
     secondary_user_id: int,

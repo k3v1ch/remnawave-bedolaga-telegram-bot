@@ -68,9 +68,12 @@ from ..auth.email_verification import (
 )
 from ..auth.jwt_handler import get_refresh_token_expires_at
 from ..auth.merge_service import (
+    clear_email_link_otp,
     clear_email_merge_otp,
     create_merge_token,
+    get_email_link_otp,
     get_email_merge_otp,
+    store_email_link_otp,
     store_email_merge_otp,
 )
 from ..dependencies import get_cabinet_db, get_current_cabinet_user
@@ -1084,12 +1087,10 @@ async def register_email(
         )
     )
     existing_email_user = existing_result.scalar_one_or_none()
-    if existing_email_user:
-        if existing_email_user.id == user.id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail='This email is already linked to your account',
-            )
+    # Совпадение с СОБСТВЕННЫМ email не блокируем: verified-случай отсечён выше,
+    # а неподтверждённый (наследие старого флоу, который писал email до
+    # верификации) должен уметь доподтвердиться через код ниже.
+    if existing_email_user and existing_email_user.id != user.id:
         # SECURITY — account-takeover prevention. Merging absorbs the existing
         # account (its subscription, balance, email) into the caller's account
         # and issues a session for the result. The OAuth and Telegram link flows
@@ -1141,63 +1142,165 @@ async def register_email(
             'merge_token': None,
         }
 
-    # Update user
-    user.email = request.email
-    user.password_hash = hash_password(request.password)
-
     if not settings.is_cabinet_email_verification_enabled():
-        # Верификация отключена — сразу помечаем email как verified
+        # Верификация отключена — применяем и помечаем verified сразу
+        user.email = email_lower
+        user.password_hash = hash_password(request.password)
         user.email_verified = True
         user.email_verified_at = datetime.now(UTC)
         await db.commit()
-    else:
-        # Generate verification token
-        verification_token = generate_verification_token()
-        verification_expires = get_verification_expires_at()
+        return {'message': 'Email linked successfully', 'email': email_lower}
 
-        user.email_verified = False
-        user.email_verification_token = verification_token
-        user.email_verification_expires = verification_expires
-        await db.commit()
+    # Верификация включена: НИЧЕГО не пишем в аккаунт до подтверждения кода.
+    # Раньше email+пароль сохранялись сразу (а письмо со ссылкой уходило вдогонку) —
+    # кабинет тут же показывал «привязано», хотя вход по почте не работал.
+    # Теперь: email + hash пароля + код staging'ом в Redis, применение — только
+    # в /email/register/confirm после ввода кода.
+    if not email_service.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='Email service is not configured; cannot send the confirmation code',
+        )
 
-        # Send verification email asynchronously (smtplib is blocking)
-        if email_service.is_configured():
-            cabinet_url = settings.CABINET_URL
-            verification_url = f'{cabinet_url}/verify-email'
-            lang = user.language or 'ru'
-            full_url = f'{verification_url}?token={verification_token}'
-            expire_hours = settings.get_cabinet_email_verification_expire_hours()
-
-            # Check for admin template override
-            override = await get_rendered_override(
-                'email_verification',
-                lang,
-                context={
-                    'username': user.first_name or '',
-                    'verification_url': full_url,
-                    'expire_hours': str(expire_hours),
-                },
-                db=db,
-            )
-            custom_subject, custom_body = override or (None, None)
-
-            await asyncio.to_thread(
-                email_service.send_verification_email,
-                to_email=request.email,
-                verification_token=verification_token,
-                verification_url=verification_url,
-                username=user.first_name,
-                language=lang,
-                custom_subject=custom_subject,
-                custom_body_html=custom_body,
-            )
-
+    link_code = generate_email_change_code()
+    lang = user.language or 'ru'
+    expire_minutes = settings.get_cabinet_email_change_code_expire_minutes()
+    override = await get_rendered_override(
+        'email_change_code',
+        lang,
+        context={
+            'username': user.first_name or '',
+            'code': link_code,
+            'expire_minutes': str(expire_minutes),
+        },
+        db=db,
+    )
+    custom_subject, custom_body = override or (None, None)
+    sent = await asyncio.to_thread(
+        email_service.send_email_change_code,
+        to_email=email_lower,
+        code=link_code,
+        username=user.first_name,
+        language=lang,
+        custom_subject=custom_subject,
+        custom_body_html=custom_body,
+    )
+    if not sent:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail='Failed to send the confirmation email. Try again later.',
+        )
+    await store_email_link_otp(user.id, email_lower, hash_password(request.password), link_code)
+    logger.info('Email link confirmation code sent', user_id=user.id)
     return {
-        'message': 'Email linked successfully'
-        if not settings.is_cabinet_email_verification_enabled()
-        else 'Verification email sent',
-        'email': request.email,
+        'message': 'A confirmation code was sent to that email address.',
+        'verification': 'email_code',
+        'email': email_lower,
     }
+
+
+@router.post('/email/register/confirm')
+async def confirm_email_link(
+    request: EmailMergeVerifyRequest,
+    raw_request: Request,
+    user: User = Depends(get_current_cabinet_user),
+    db: AsyncSession = Depends(get_cabinet_db),
+):
+    """
+    Complete email linking with the code mailed to the address.
+
+    Applies the staged email + password to the account and marks the email
+    verified — the account is untouched until this succeeds.
+    """
+    client_ip = get_client_ip(raw_request)
+    if await RateLimitCache.is_ip_rate_limited(client_ip, 'email_link_confirm', limit=5, window=60, fail_closed=True):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail='Too many requests',
+            headers={'Retry-After': '60'},
+        )
+    # Брутфорс кода: на превышении сжигаем pending — придётся начать заново
+    # (и получить НОВЫЙ код), живой код перебором не достать.
+    if await RateLimitCache.is_ip_rate_limited(
+        f'user:{user.id}', 'email_link_confirm', limit=5, window=900, fail_closed=True
+    ):
+        await clear_email_link_otp(user.id)
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail='Too many invalid attempts. Please start the linking again.',
+        )
+
+    pending = await get_email_link_otp(user.id)
+    if not pending:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='No pending email link. Please start again.',
+        )
+    if not hmac.compare_digest(str(pending.get('code', '')), str(request.code)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Invalid confirmation code',
+        )
+
+    if user.email and user.email_verified:
+        await clear_email_link_otp(user.id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='You already have a verified email',
+        )
+
+    pending_email = str(pending.get('email', ''))
+    pending_password_hash = str(pending.get('password_hash', ''))
+    if not pending_email or not pending_password_hash:
+        await clear_email_link_otp(user.id)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='No pending email link. Please start again.',
+        )
+
+    # Гонка: email могли занять, пока код был в пути
+    taken_result = await db.execute(
+        select(User).where(
+            func.lower(User.email) == pending_email,
+            User.status != UserStatus.DELETED.value,
+            User.id != user.id,
+        )
+    )
+    if taken_result.scalar_one_or_none():
+        await clear_email_link_otp(user.id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='This email was just registered by another account',
+        )
+
+    user.email = pending_email
+    user.password_hash = pending_password_hash
+    user.email_verified = True
+    user.email_verified_at = datetime.now(UTC)
+    user.email_verification_source = 'cabinet'
+    user.email_verification_token = None
+    user.email_verification_expires = None
+    user.updated_at = datetime.now(UTC)
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        await clear_email_link_otp(user.id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail='This email was just registered by another account',
+        ) from exc
+
+    await clear_email_link_otp(user.id)
+    logger.info('Email linked to account via confirmation code', user_id=user.id)
+
+    # Как и в /email/verify: подтянуть подписку из панели по email (не критично)
+    try:
+        await _sync_subscription_from_panel_by_email(db, user)
+    except Exception as sync_error:
+        logger.error('Post-email-link panel sync failed (non-fatal)', user_id=user.id, error=str(sync_error))
+
+    return {'message': 'Email linked successfully', 'email': pending_email}
 
 
 @router.post('/email/merge/verify')

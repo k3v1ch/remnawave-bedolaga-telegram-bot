@@ -207,7 +207,9 @@ def _get_provider_identifier(user: User, provider: str) -> str | None:
         case 'telegram':
             return str(user.telegram_id) if user.telegram_id else None
         case 'email':
-            return user.email if user.email and user.password_hash else None
+            # Неподтверждённый email — НЕ привязан: вход по нему не работает, а
+            # кнопка «Привязать» должна оставаться доступной для доподтверждения.
+            return user.email if user.email and user.password_hash and user.email_verified else None
         case _:
             column = OAUTH_PROVIDER_COLUMNS.get(provider)
             if not column:
